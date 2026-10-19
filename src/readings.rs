@@ -35,29 +35,14 @@ impl From {
 
 /// A target as a folder name: `crate:core_lib/src/x.rs` → `crate_core_lib_src_x_rs`.
 pub fn slug(s: &str) -> String {
-    let mut out: String = s.chars().map(|c| if c.is_ascii_alphanumeric() || c == '-' { c } else { '_' }).collect();
-    while out.contains("__") {
-        out = out.replace("__", "_");
-    }
-    let out = out.trim_matches('_').to_string();
-    let out: String = out.chars().take(48).collect();
-    if out.is_empty() {
-        "all".into()
-    } else {
-        out
-    }
+    custodian_kit::reading::spec::name_slug(s)
 }
 
 /// A search on the line as a spec.
 pub fn inline_spec(kind: &str, target: &str) -> Result<ReadingSpec> {
     let k: ReadingKind = kind.parse().map_err(|e: String| Code::LineRefused.refuse(e))?;
-    let text = format!(
-        "name = {}\nquestion = \"a search on the command line\"\nkind = \"{}\"\ntarget = {}\n",
-        toml::Value::String(format!("{}-{}", k.as_str(), slug(target))),
-        k.as_str(),
-        toml::Value::String(target.to_string())
-    );
-    Ok(ReadingSpec::from_toml(&text)?)
+    // the kit's one search spec: the same a preflight or a plan makes for the same target
+    Ok(ReadingSpec::search(k, target)?)
 }
 
 /// The spec a line names: `--kind` with a target, a spec file, or (journaled) a queued or done spec's name.
