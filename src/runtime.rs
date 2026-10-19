@@ -289,9 +289,22 @@ fn plan_step(ctx: &Ctx, st: &JobState, step: &StepPlan) -> Result<std::result::R
     let base = format!("{}-{}", st.kind, step.name);
     let question = format!("job {} step {}", st.job, step.name);
     let steps_dir = st.folder.join("steps");
+    // a step's spec is written in 1o, as custodian_kit writes one; a value 1o cannot carry (a double quote) keeps it
+    // in TOML, which is still read
     let write = |name: &str, text: &str| -> Result<PathBuf> {
-        let p = steps_dir.join(format!("{name}.toml"));
-        crate::layout::write_whole(&p, text.as_bytes())?;
+        let spec = custodian_kit::api::ReadingSpec::from_toml(text)?;
+        let unwritable = crate::codes::Refusal::from(custodian_kit::api::RefusalCode::OneoUnwritable.refuse("")).code;
+        let (p, body) = match spec.to_1o() {
+            Ok(o) => (steps_dir.join(custodian_kit::oneo::Doc::Reading.file_name(name)), o),
+            Err(e) => {
+                let r = crate::codes::Refusal::from(e);
+                if r.code != unwritable {
+                    return Err(r);
+                }
+                (steps_dir.join(format!("{name}.toml")), text.to_string())
+            }
+        };
+        crate::layout::write_whole(&p, body.as_bytes())?;
         Ok(p)
     };
     if let Some(from) = &step.for_each {

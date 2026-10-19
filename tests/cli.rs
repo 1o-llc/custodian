@@ -169,6 +169,8 @@ fn triage_runs_its_template_and_closes_into_one_receipt() {
     assert!(out.contains("step codes done") && out.contains("step reach done") && out.contains("step tests done") && out.contains("step marks done"), "{out}");
     assert!(out.contains("## specs read"), "{out}");
     assert!(out.contains("closing receipt: .custodian/state/jobs/done/triage-FIX0002/closing.md"), "{out}");
+    assert!(d.join(".custodian/state/jobs/done/triage-FIX0002/steps/v1.triage-codes.1o.reading").is_file(), "a step's spec is written in 1o");
+    assert!(d.join(".custodian/state/jobs/done/triage-FIX0002/v1.job.1o.job").is_file(), "the job file is written in 1o");
     // a code nothing raises: the reach step has nothing to read and is skipped by the step gate
     let none = ok(&d, &["triage", "NOPE9999"], 0);
     assert!(none.contains("step reach skipped: no: step codes gave step reach nothing"), "{none}");
