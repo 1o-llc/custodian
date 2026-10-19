@@ -1,0 +1,5 @@
+id = "fix:core"
+binary = "appd"
+
+[env.FIX_SOCKET]
+default = "/run/fix/core.sock"

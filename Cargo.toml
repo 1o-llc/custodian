@@ -2,22 +2,65 @@
 name = "custodian"
 version = "0.1.0"
 edition = "2021"
-rust-version = "1.85"
+# ob-serve-a-bowl 0.2 needs 1.88
+rust-version = "1.88"
 
 license = "MIT OR Apache-2.0"
-description = "The command line of custodian_kit: code graph, queries, pins, search receipts, and `reading run <spec.toml>` pages with history"
-keywords = ["klepto", "code-search", "cli", "static-analysis"]
+description = "Repository awareness for coding agents before they act: reading specs over a Rust workspace, each run a declared xccute line with a receipt, a SQLite journal, jobs as folders, a resident socket, and the maintenance loop"
+keywords = ["klepto", "code-search", "cli", "static-analysis", "maintenance"]
 categories = ["development-tools", "command-line-utilities"]
 
 authors = ["James Hunt <james@1o.business>"]
 repository = "https://github.com/jameshuntt/custodian"
 readme = "README.md"
 
-include = ["src/**", "Cargo.toml", "LICENSE*", "README*", "CHANGELOG*"]
+include = ["src/**", "hooks/**", "tests/**", "docs/**", "Cargo.toml", "LICENSE*", "README*", "CHANGELOG*"]
+
+[[bin]]
+name = "custodian"
+path = "src/main.rs"
 
 [dependencies]
+# the library: readings over klepto, held open as a Workspace (src/api.rs)
 custodian_kit = { version = "0.1.0", path = "../custodian_kit" }
-# installs custodian itself (and the programs its lines run): plan, install from the plan, keep the receipt
+# the checks and the timing report, run as maintenance's own declared lines
+maintenance = { version = "0.1.0", path = "../maintenance_macros/crates/maintenance", features = ["check", "runner"] }
+
+# every subcommand a declared line; every run executed through the runtime with a receipt
+simple_impl_derive = "0.2.6"
+xccute_contract = "0.1.2"
+xccute_runtime = "0.1.2"
+# the cargo test lines (nothing redeclared)
+xccute_commands = "0.1.1"
+# the gates a run asks before it acts: same search, a job running, a triage step's input
+xccute_decisions = "0.1.1"
+# the journal's sequence: a checked counter
+uh-tom-mick = "0.1.1"
+# every digest, over one canonical byte form
+stable_digest = "0.1.1"
+# the .custodian/ layout, declared by derive
+pathgen = { version = "0.1.2", features = ["derive"] }
+pathgen-macros = "0.1.2"
+# a job's steps as structured tasks, the queue with QoS and checkpoints, the observers
+scope = "0.3.1"
+waker_protocol = "0.3.2"
+waker_tables = "0.3.1"
+ob-serve-a-bowl = "0.2.2"
+# the resident socket: owner-only, length-prefixed frames
+mine = "0.3.2"
+abut = "0.2.2"
+# option sets as words, their rules as constraints, refusals as codes
+big-bad-bool = "0.1.1"
+flaga_solver = "0.1.1"
+liaise_proc_macro = "0.1.3"
+# self install: plan, install from the plan, receipt
 installation = "0.2.2"
+# the journal
+rusqlite = { version = "0.40", features = ["bundled"] }
+
+serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 toml = "0.8"
+chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
+
+[dev-dependencies]
