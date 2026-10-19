@@ -107,20 +107,41 @@ fn a_refused_line_says_its_code_and_is_kept() {
     assert!(r.out.contains("[CUST1201]"), "{}", r.all());
 }
 
-/// custodian_kit a1ecffd writes `counts.json` into a job's folder before it lists the folder's specs, and reads it
-/// as a JSON spec: a folder-of-specs job is refused (CUST0002) at its first step. The kit's to fix.
 #[test]
-#[ignore = "custodian_kit a1ecffd reads its own counts.json as a spec: a folder-of-specs job is refused"]
 fn a_folder_of_specs_is_a_job_from_start_to_close() {
     let d = fixture("job");
     ok(&d, &["agent", "init"], 0);
     let q = d.join(".custodian/state/jobs/queued/batch");
+    std::fs::create_dir_all(&q).unwrap();
+    std::fs::write(q.join("v1.job.1o.job"), "{\n  job {\n    name \"batch\"\n    kind \"specs\"\n    count true\n  }\n}\n").unwrap();
     spec(&q, "a.toml", "batch_env", "readers_of_env", "FIX_SOCKET");
     spec(&q, "b.toml", "batch_reach", "reach", "crate:app");
     let out = ok(&d, &["job", "start", "batch"], 0);
     assert!(out.contains("task history: batch/base"), "{out}");
+    let (a, b) = (out.find("batch_env").unwrap(), out.find("batch_reach").unwrap());
+    assert!(a < b, "the specs run in name order: {out}");
+    let lib = d.join("crates/core_lib/src/lib.rs");
+    std::fs::write(&lib, std::fs::read_to_string(&lib).unwrap() + "\npub fn more() -> u8 {\n    2\n}\n").unwrap();
     let closed = ok(&d, &["job", "close"], 0);
-    assert!(closed.contains("closing receipt:"), "{closed}");
+    assert!(closed.contains("lines touched: job: +4 −0") && closed.contains("closing receipt: .custodian/state/jobs/done/batch/closing.md"), "{closed}");
+    // every receipt of the job names the folder where it is now
+    let ctx = custodian::facade::Ctx::at(&d).unwrap();
+    let id = custodian_kit::jobs::job_file(&d.join(".custodian/state/jobs/done/batch")).id.unwrap();
+    for r in ctx.journal().unwrap().receipts_of_job(&id).unwrap() {
+        for o in r.outputs.iter().filter(|o| o.contains("/jobs/")) {
+            assert!(o.contains("/jobs/done/batch/") && d.join(o).exists(), "#{} {o}", r.seq);
+        }
+    }
+    let brief = ok(&d, &["job", "brief", "batch"], 0);
+    assert!(brief.starts_with("lines touched: job: +4 −0") && brief.contains("revision: base of task batch") && brief.contains("task history: batch (1 revisions)"), "{brief}");
+    // run again under the same name: revision fix1 of the same task
+    let q2 = d.join(".custodian/state/jobs/queued/batch-2");
+    std::fs::create_dir_all(&q2).unwrap();
+    std::fs::write(q2.join("v1.job.1o.job"), "{\n  job {\n    name \"batch\"\n    kind \"specs\"\n  }\n}\n").unwrap();
+    spec(&q2, "a.toml", "batch_env", "readers_of_env", "FIX_SOCKET");
+    let again = ok(&d, &["job", "start", "batch-2"], 0);
+    assert!(again.contains("task history: batch/fix1"), "{again}");
+    ok(&d, &["job", "close"], 0);
 }
 
 #[test]

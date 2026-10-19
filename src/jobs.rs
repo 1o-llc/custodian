@@ -170,7 +170,8 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     ran.say(format!("job {} is open: readings run now are tagged with it; custodian job close {} writes the closing receipt", started.id, started.id));
     ran.name = started.id.clone();
     ran.job = Some(started.id.clone());
-    ran.outputs = vec![ctx.rel(&started.folder)];
+    // a file inside the folder, so the kit's move (jobs::move_job) rewrites it with the folder's other paths
+    ran.outputs = vec![ctx.rel(&started.folder.join(custodian_kit::jobs::job_file_name()))];
     Ok(ran)
 }
 
@@ -269,9 +270,7 @@ pub fn import(ctx: &mut Ctx, bundle: &Path, limit: Limit) -> Result<Ran> {
     jf.task_id = None;
     jf.revision = None;
     write_job_file(&queued, &jf)?;
-    // read again: an earlier reading's receipt can name a job folder that has since moved to done (custodian_kit
-    // a1ecffd keeps the path a reading had when it was taken), and an imported job is new work
-    let mut ran = start(ctx, &StartAsk { which: Some(name.clone()), origin: Some(digest.clone()), again: true, limit, ..StartAsk::default() })?;
+    let mut ran = start(ctx, &StartAsk { which: Some(name.clone()), origin: Some(digest.clone()), limit, ..StartAsk::default() })?;
     ran.said.insert(0, format!("imported {} ({digest}) into {}", bundle.display(), layout.rel(&queued)));
     Ok(ran)
 }

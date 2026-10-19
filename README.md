@@ -62,8 +62,6 @@ Built and tested in this version:
 - a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs
 - `self install` through the installation crate, and a pre-edit hook script (not enabled)
 
-Not working yet, in custodian_kit a1ecffd: a folder-of-specs job is refused at its first step (the kit reads the
-`counts.json` it wrote into the folder as a spec). Template jobs run.
 
 Planned, not built (from the specification): bounded and unbounded modes; structured change-impact and cost
 analysis; SimpleImpl transformation contracts; specification files as the central contract for transformations;
@@ -202,6 +200,6 @@ Hunt's.
 ## Building
 
 custodian depends by path on [custodian_kit](../custodian_kit) and
-[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 36 tests (one more is ignored until the kit's folder-of-specs refusal is fixed):
+[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 37 tests:
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
 `tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.

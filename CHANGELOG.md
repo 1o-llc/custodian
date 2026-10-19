@@ -15,7 +15,7 @@ an agent should read a repository before it works on it, ask what it must ask be
 - the `.custodian/` parts the kit declares are the kit's descriptors (`store::named`), named here as types; only the parts the command line alone keeps (a reading's record, a check's JSON, a log read from stdin) are declared in src/layout.rs.
 - `custodian count [ROUTE] [--by crate|language] [--tests]`, `count report A B` (a count named by its receipt number, a job, `<job>:open` or `<job>:close`, a commit or a date; a name that fits several is refused, CUST1205) and `count history [ROUTE]`, over custodian_kit's `count` kind and `count::compare_counts`: src/counting.rs. `diff` of two counts says what grew.
 - `init --macros` runs `code-passenger dep add <crate> maintenance --path ...` (and big-bad-bool for a crate that declares a level word), `annotate --apply` runs `code-passenger attr place` per plan line, `features --apply` runs `code-passenger gate --write`, each through the executor with a receipt; `job start` and `job close` take a passenger checkpoint when code-passenger is installed, kept in the folder's `passenger.json`.
-- found in custodian_kit a1ecffd, the kit's to fix: a folder-of-specs job writes `counts.json` into the folder before listing its specs and reads it as a JSON spec (CUST0002), so such a job is refused (tests/cli.rs `a_folder_of_specs_is_a_job_from_start_to_close` is ignored with that reason); a reading's receipt keeps the path it had in `jobs/running`, which moves to `jobs/done` at close, so a later reuse of it fails to copy (an imported job reads again).
+- custodian_kit fed6c5d fixed what a1ecffd got wrong: a job's specs are its spec files only (`jobs::job_specs`), and a job's move (`jobs::move_job`) rewrites every receipt's paths, so a folder-of-specs job runs from start to close and a reading's receipt names where its file is now (tests/cli.rs `a_folder_of_specs_is_a_job_from_start_to_close`, and every receipt of the job checked). custodian moves no job folder itself; its `job start` receipt names the job file inside the folder, so the kit's move rewrites it with the rest.
 
 ### the surface
 
@@ -68,5 +68,5 @@ an agent should read a repository before it works on it, ask what it must ask be
 
 ### proof
 
-- `cargo test`: 36 tests pass, 1 ignored (the kit's folder-of-specs refusal), on stable 1.97.1 against custodian_kit a1ecffd and task_history f0677e4: 15 unit tests, tests/cli.rs (19 of 20, every subcommand on the fixture project in tests/fixtures/ws, through the built program; the writing tests need code-passenger on PATH), tests/runtime.rs (2).
+- `cargo test`: 37 tests pass on stable 1.97.1 against custodian_kit fed6c5d and task_history f0677e4: 15 unit tests, tests/cli.rs (20, every subcommand on the fixture project in tests/fixtures/ws, through the built program; the writing tests need code-passenger on PATH), tests/runtime.rs (2).
 - `cargo clippy --all-targets`: no warnings.

@@ -103,9 +103,6 @@ fn counts(ctx: &Ctx) -> Result<Vec<Taken>> {
     let mut out = Vec::new();
     for r in j.receipts()?.into_iter().filter(|r| r.reused_seq.is_none()) {
         let Some(json) = r.outputs.iter().find(|o| o.ends_with(".json")) else { continue };
-        // a job's reading moved with its folder from jobs/running to jobs/done after its receipt was kept
-        let json = if ctx.root().join(json).is_file() { json.clone() } else { json.replacen("/jobs/running/", "/jobs/done/", 1) };
-        let json = &json;
         let Ok(rep) = custodian_kit::reading::load(&ctx.root().join(json)) else { continue };
         let Some(count) = rep.count else { continue };
         let row = ReadingRow {
