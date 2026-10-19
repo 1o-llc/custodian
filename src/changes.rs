@@ -27,9 +27,13 @@ fn impact_scope() -> Scope {
 
 /// The job a line runs in: the one it names, else the open one.
 fn in_job(ctx: &Ctx, named: Option<String>) -> Result<Option<InJob>> {
+    let asked = named.is_some();
     let Some(id) = ctx.current_job(named)? else { return Ok(None) };
     let folder = crate::readings::job_folder(ctx, &id)?;
-    Ok(folder.map(|f| InJob { id, readings: f.join("readings") }))
+    if asked && folder.is_none() {
+        return Err(Code::NoSuchJob.refuse(format!("{id}: not in the journal")));
+    }
+    Ok(folder.map(|f| InJob { id, readings: f.join(custodian_kit::jobs::READINGS_DIR) }))
 }
 
 /// A change spec named by its file or by its name in `data/specs/changes/` (`v1.<name>.1o.change`, `<name>.toml`).
@@ -39,7 +43,7 @@ pub fn spec_path(ctx: &Ctx, spec: &str) -> Result<PathBuf> {
         return Ok(here);
     }
     if let Some(p) = ctx.mode.project() {
-        let dir = p.layout.root.join(crate::layout::FOLDER).join("data/specs/changes");
+        let dir = p.layout.dir::<crate::layout::ChangeSpec>(&[("name", "x")])?;
         for f in [dir.join(custodian_kit::oneo::Doc::Change.file_name(spec)), dir.join(format!("{spec}.toml")), dir.join(spec)] {
             if f.is_file() {
                 return Ok(f);
@@ -95,7 +99,7 @@ pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, revert: Option<
             }
             // the record where the job keeps its own, else the project's
             let out = match job.as_deref().map(|j| crate::readings::job_folder(ctx, j)).transpose()?.flatten() {
-                Some(folder) => folder.join("data/transforms").join(format!("{}-{}.json", custodian_kit::jobs::slug_of(&change.name), crate::journal::stamp())),
+                Some(folder) => folder.join(custodian_kit::jobs::JOB_DATA).join("transforms").join(format!("{}-{}.json", custodian_kit::jobs::slug_of(&change.name), crate::journal::stamp())),
                 None => st.path(&custodian_kit::store::named::TRANSFORM, &[("name", &change.name), ("stamp", &crate::journal::stamp())])?,
             };
             let mut w: Vec<String> = vec!["transform".into(), "--spec".into(), path.display().to_string(), "--out".into(), out.display().to_string()];
@@ -133,10 +137,16 @@ fn plan_name(intent: &str) -> String {
     custodian_kit::jobs::slug_of(&words.join("-"))
 }
 
-/// `custodian plan make INTENT [--name NAME]`.
+/// `custodian plan make INTENT [--name NAME]`, in the running job.
 pub fn plan(ctx: &mut Ctx, intent: &str, name: Option<String>) -> Result<Ran> {
+    plan_in(ctx, intent, name, None)
+}
+
+/// `custodian plan make INTENT [--name NAME] [--job ID]`: the plan made in the job named (the running one by
+/// default), so its impact readings are the job's and its decisions are in the job's list.
+pub fn plan_in(ctx: &mut Ctx, intent: &str, name: Option<String>, job: Option<String>) -> Result<Ran> {
     let name = name.unwrap_or_else(|| plan_name(intent));
-    let job = in_job(ctx, None)?;
+    let job = in_job(ctx, job)?;
     let k = crate::jobs::kit(ctx);
     let ran = {
         let ws = ctx.workspace(&impact_scope(), if job.is_some() { Resolving::Job } else { Resolving::Free })?;
@@ -153,12 +163,19 @@ pub fn plan(ctx: &mut Ctx, intent: &str, name: Option<String>) -> Result<Ran> {
     Ok(out)
 }
 
-/// `custodian plan approve PLAN STEP [--operation OP]`.
+/// `custodian plan approve PLAN STEP [--operation OP]`, in the running job.
 pub fn approve(ctx: &mut Ctx, plan: &str, step: &str, operation: Option<&str>) -> Result<Ran> {
+    approve_in(ctx, plan, step, operation, None)
+}
+
+/// `custodian plan approve PLAN STEP [--operation OP] [--job ID]`: its receipt the job's (the running one by default).
+pub fn approve_in(ctx: &mut Ctx, plan: &str, step: &str, operation: Option<&str>, job: Option<String>) -> Result<Ran> {
+    let job = in_job(ctx, job)?.map(|j| j.id);
     let st = store(ctx)?;
     let n: usize = step.parse().map_err(|_| Code::LineRefused.refuse(format!("`{step}` is not a step's number")))?;
     let (spec, p) = custodian_kit::plan::approve(&st, plan, n, operation)?;
     let mut ran = Ran::named(plan);
+    ran.job = job;
     ran.print(std::fs::read_to_string(&spec).unwrap_or_default());
     ran.say(format!("plan {plan} step {n} → {} (its TODO filled in, then: custodian preflight {})", ctx.rel(&spec), spec.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default()));
     ran.say(format!("plan {}: {} of {} steps approved", p.name, p.steps.iter().filter(|s| s.status == "approved").count(), p.steps.len()));
@@ -166,11 +183,18 @@ pub fn approve(ctx: &mut Ctx, plan: &str, step: &str, operation: Option<&str>) -
     Ok(ran)
 }
 
-/// `custodian plan show PLAN`.
+/// `custodian plan show PLAN`, in the running job.
 pub fn show(ctx: &mut Ctx, plan: &str) -> Result<Ran> {
+    show_in(ctx, plan, None)
+}
+
+/// `custodian plan show PLAN [--job ID]`: its receipt the job's (the running one by default).
+pub fn show_in(ctx: &mut Ctx, plan: &str, job: Option<String>) -> Result<Ran> {
+    let job = in_job(ctx, job)?.map(|j| j.id);
     let st = store(ctx)?;
     let (p, file) = custodian_kit::plan::load(&st, plan).map_err(|_| Code::NoPlan.refuse(plan))?;
     let mut ran = Ran::named(plan);
+    ran.job = job;
     ran.print(custodian_kit::plan::markdown(&p));
     ran.outputs = vec![ctx.rel(&file)];
     Ok(ran)
@@ -237,7 +261,7 @@ pub fn linkage_check(ctx: &mut Ctx, target: Option<&str>) -> Result<Ran> {
 
 /// Writes a change spec into `data/specs/changes/` (in 1o, or its TOML twin when 1o cannot carry a value).
 pub fn write_spec(ctx: &Ctx, spec: &custodian_kit::change::ChangeSpec) -> Result<PathBuf> {
-    let dir = ctx.layout()?.folder().join("data/specs/changes");
+    let dir = ctx.layout()?.dir::<crate::layout::ChangeSpec>(&[("name", "x")])?;
     let (file, text) = match spec.to_1o() {
         Ok(t) => (dir.join(custodian_kit::oneo::Doc::Change.file_name(&spec.name)), t),
         Err(_) => (dir.join(format!("{}.toml", spec.name)), spec.to_toml()?),

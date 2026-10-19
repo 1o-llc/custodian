@@ -148,7 +148,7 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
             ran.say(format!("reading: {page_rel} (+ {record_rel})"));
             if let Some(job) = &ask.job {
                 if let Some(dir) = job_folder(ctx, job)? {
-                    let into = dir.join("readings").join(&spec.name);
+                    let into = dir.join(custodian_kit::jobs::READINGS_DIR).join(&spec.name);
                     let stem = page.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
                     write_whole(&into.join(format!("{stem}.md")), reading.markdown().as_bytes())?;
                     write_whole(&into.join(format!("{stem}.json")), reading.json().as_bytes())?;
@@ -210,35 +210,35 @@ pub fn queued_specs(ctx: &Ctx) -> Result<Vec<PathBuf>> {
     Ok(v)
 }
 
-/// `custodian diff SPEC [--from SEQ] [--to SEQ]`: what moved between two readings of one spec.
+/// `custodian diff SPEC [--from SEQ] [--to SEQ]`: what moved between two readings of one spec. The two are picked
+/// from the receipts, as `differences readings` picks them (differences_kit's `reading_pair`): the readings index is
+/// a cache rebuilt from the receipts, never the source.
 pub fn diff(ctx: &mut Ctx, spec: &str, from: Option<i64>, to: Option<i64>) -> Result<Ran> {
-    let journal = ctx.journal()?;
+    ctx.journal()?;
     let name = spec.trim_end_matches(".toml");
     let name = Path::new(name).file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_else(|| name.to_string());
-    let all = journal.readings_of(&name)?;
-    let pick = |seq: Option<i64>, default: Option<&ReadingRow>| -> Result<ReadingRow> {
-        match seq {
-            Some(n) => all.iter().find(|r| r.seq == n).cloned().ok_or_else(|| Code::NothingToDiff.refuse(format!("{name} has no reading #{n}"))),
-            None => default.cloned().ok_or_else(|| Code::NothingToDiff.refuse(format!("{name}: {} reading(s)", all.len()))),
-        }
+    let project = differences_kit::Project::open(ctx.root()).map_err(|e| Code::NeedsFolder.refuse(e))?;
+    let [before, after] = differences_kit::reading_pair(&project, &name, from, to).map_err(|e| match e.refusal {
+        differences_kit::Refusal::NoReading | differences_kit::Refusal::NothingToCompare => Code::NothingToDiff.refuse(e.detail),
+        _ => Code::Journal.refuse(e),
+    })?;
+    let side = |(r, record): &(custodian_kit::api::Receipt, String)| -> Result<(i64, custodian_kit::api::ReadingReport, String)> {
+        let report = custodian_kit::reading::load(&project.at(record)).map_err(|e| Code::ReadingUnreadable.refuse(format!("#{}: {e}", r.seq)))?;
+        Ok((r.seq, report, record.clone()))
     };
-    let after = pick(to, all.last())?;
-    let before_default = all.iter().rev().find(|r| r.seq < after.seq);
-    let before = pick(from, before_default)?;
-    let load = |r: &ReadingRow| custodian_kit::reading::load(&ctx.root().join(&r.record)).map_err(|e| Code::ReadingUnreadable.refuse(format!("#{}: {e}", r.seq)));
-    let (a, b) = (load(&before)?, load(&after)?);
+    let ((bs, a, br), (as_, b, ar)) = (side(&before)?, side(&after)?);
     let mut ran = Ran::named(&name);
     // two counts: what grew, file by file (custodian_kit's count compare); any other reading: rows and counts
     if let (Some(x), Some(y)) = (&a.count, &b.count) {
         let d = custodian_kit::reading::count::compare_counts(x, y);
-        ran.print(tree_history::count::diff_table(&d, before.seq, after.seq));
-        ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, d.line("grew")));
+        ran.print(tree_history::count::diff_table(&d, bs, as_));
+        ran.say(format!("compared {name}: #{bs} ({}) → #{as_} ({}): {}", a.stamp, b.stamp, d.line("grew")));
     } else {
         let d = custodian_kit::diff::compare(&a, &b);
         ran.print(custodian_kit::diff::render(&d));
-        ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, if d.is_empty() { "nothing moved" } else { "moved" }));
+        ran.say(format!("compared {name}: #{bs} ({}) → #{as_} ({}): {}", a.stamp, b.stamp, if d.is_empty() { "nothing moved" } else { "moved" }));
     }
-    ran.outputs = vec![before.record, after.record];
+    ran.outputs = vec![br, ar];
     Ok(ran)
 }
 

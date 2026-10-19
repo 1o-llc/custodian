@@ -118,9 +118,9 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::McpServe(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
         Line::Preflight(l) => crate::changes::preflight(ctx, &s(&l.spec), so(&l.job)),
         Line::Transform(l) => crate::changes::transform(ctx, so(&l.spec).as_deref(), l.write, so(&l.revert).as_deref(), so(&l.job)),
-        Line::PlanMake(l) => crate::changes::plan(ctx, &s(&l.intent), so(&l.name)),
-        Line::PlanApprove(l) => crate::changes::approve(ctx, &s(&l.plan), &s(&l.step), so(&l.operation).as_deref()),
-        Line::PlanShow(l) => crate::changes::show(ctx, &s(&l.plan)),
+        Line::PlanMake(l) => crate::changes::plan_in(ctx, &s(&l.intent), so(&l.name), so(&l.job)),
+        Line::PlanApprove(l) => crate::changes::approve_in(ctx, &s(&l.plan), &s(&l.step), so(&l.operation).as_deref(), so(&l.job)),
+        Line::PlanShow(l) => crate::changes::show_in(ctx, &s(&l.plan), so(&l.job)),
         Line::Decide(l) => crate::changes::decide(ctx, so(&l.id).as_deref(), so(&l.answer).as_deref(), so(&l.why).as_deref()),
         Line::LinkageAdd(l) => crate::changes::linkage_add(ctx, &s(&l.name), so(&l.kind).as_deref(), so(&l.why).as_deref(), &l.bind.iter().map(s).collect::<Vec<_>>()),
         Line::LinkageCheck(l) => crate::changes::linkage_check(ctx, so(&l.target).as_deref()),
@@ -233,7 +233,7 @@ pub fn init_with(ctx: &mut Ctx, mode: FolderMode, macros: bool, job_mode: Option
     };
     // the routes table and the 1o schemas, as custodian_kit lays them out (the language server reads the schemas
     // through oneo.project.json at the root)
-    let old_paths = root.join(layout::FOLDER).join("config").join("paths.toml");
+    let old_paths = layout.path::<layout::ConfigFile>(&[("name", "paths")])?;
     if !old_paths.exists() {
         keep(layout.path::<layout::PathsTable>(&[])?, &custodian_kit::oneo::render(custodian_kit::oneo::Doc::Paths, &custodian_kit::paths::PathsFile::default())?)?;
     }

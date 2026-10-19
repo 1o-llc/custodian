@@ -550,6 +550,10 @@
           "description": "The intent, in the asker's words. (a word on the line)",
           "type": "string"
         },
+        "job": {
+          "description": "The job it is part of (the running one by default). (`--job`)",
+          "type": "string"
+        },
         "name": {
           "description": "The plan's name (from the intent's words by default). (`--name`)",
           "type": "string"
@@ -567,6 +571,10 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "job": {
+          "description": "The job it is part of (the running one by default). (`--job`)",
+          "type": "string"
+        },
         "operation": {
           "description": "The operation (the step's first by default). (`--operation`)",
           "enum": [
@@ -615,6 +623,10 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "job": {
+          "description": "The job it is part of (the running one by default). (`--job`)",
+          "type": "string"
+        },
         "plan": {
           "description": "The plan's name. (a word on the line)",
           "type": "string"

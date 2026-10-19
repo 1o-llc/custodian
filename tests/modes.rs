@@ -98,6 +98,28 @@ fn an_intent_is_planned_and_a_step_becomes_a_change_spec() {
     assert!(pre.out.contains("TODO"), "{}", pre.out);
 }
 
+/// The lease-matrix job (receipts #108 to #123 of the kit): a plan made in a named job is the job's, the crates its
+/// intent names are its targets, and a reading the job set out to make satisfies its `reading:` verification.
+#[test]
+fn a_plan_belongs_to_its_job_and_a_first_reading_verifies_it() {
+    let d = fixture("plan-job");
+    ok(&d, &["agent", "init"], 0);
+    let started = ok(&d, &["job", "start", "scope", "--intent", "scope the merge of core_lib into app", "--verify", "reading:dependents-crate_core_lib"], 0);
+    let id = started.split_whitespace().find(|w| w.starts_with("job-")).unwrap().to_string();
+    let made = ok(&d, &["plan", "make", "merge", "core_lib", "into", "app,", "keeping", "every", "capability,", "the", "old", "crate", "kept", "on", "a", "branch", "--name", "merge", "--job", &id], 0);
+    assert!(made.contains("named outright: crate:core_lib, crate:app"), "{made}");
+    assert!(!made.contains("where does it go"), "{made}");
+    assert_eq!(receipt(&d, seq_of(&made))["job"], id.as_str());
+    let shown = ok(&d, &["plan", "show", "merge", "--job", &id], 0);
+    assert_eq!(receipt(&d, seq_of(&shown))["job"], id.as_str());
+    // a job that is not there is refused
+    assert_eq!(run(&d, &["plan", "make", "merge", "core_lib", "--job", "job-000000000000"]).code, 2);
+    // never read before the job: its first reading in the job satisfies the verification
+    ok(&d, &["run", "crate:core_lib", "--kind", "dependents", "--job", &id], 0);
+    let closed = ok(&d, &["job", "close", &id], 0);
+    assert!(closed.contains("result: accepted"), "{closed}");
+}
+
 #[test]
 fn a_linkage_record_is_added_and_checked() {
     let d = fixture("linkage");

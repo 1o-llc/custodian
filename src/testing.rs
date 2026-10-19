@@ -76,7 +76,7 @@ pub fn lines(ctx: &mut Ctx, all: bool, git_ref: &str, job: Option<String>, ran: 
         return Err(facade::not_accepted(&diff));
     }
     // custodian's own folder is not the code
-    let files: Vec<String> = diff.stdout.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(".custodian/")).map(str::to_owned).collect();
+    let files: Vec<String> = diff.stdout.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(&format!("{}/", crate::layout::FOLDER))).map(str::to_owned).collect();
     ran.say(format!("the change since {git_ref}: {} file(s) ({} #{})", files.len(), diff.receipt.line, diff.receipt.seq));
     if files.is_empty() {
         return Ok(Vec::new());

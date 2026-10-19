@@ -452,11 +452,12 @@ impl Journal {
     pub fn rebuild_from(&mut self, root: &Path, receipts_dir: &Path, jobs_root: &Path) -> Result<Rebuilt> {
         let mut out = Rebuilt::default();
         let folders = job_folders(jobs_root);
+        let project = differences_kit::Project::open(root).map_err(|e| Code::Journal.refuse(e))?;
         // the runs from the receipt files (receipt_history's), each reading indexed in the same transaction
         let back = self
             .receipts
             .rebuild_from(receipts_dir, |conn, r| {
-                if let Some(row) = reading_row_of(root, r, &folders) {
+                if let Some(row) = reading_row_of(&project, r, &folders) {
                     conn.execute(
                         "INSERT OR IGNORE INTO readings (seq, name, kind, target, spec_digest, index_key, word, stamp, page, record, reading_digest, job) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                         params![row.seq, row.name, row.kind, row.target, row.spec_digest, row.index_key, row.word, row.stamp, row.page, row.record, row.reading_digest, row.job],
@@ -518,36 +519,16 @@ impl Rebuilt {
     }
 }
 
-/// Every job folder under `state/jobs/`, with its state (`queued`, `running`, `done`).
+/// Every job folder under `state/jobs/`, with its state (`queued`, `running`, `done`): custodian_kit's.
 pub fn job_folders(jobs_root: &Path) -> Vec<(String, PathBuf)> {
-    let mut out = Vec::new();
-    for state in ["queued", "running", "done"] {
-        let dir = jobs_root.join(state);
-        let mut v: Vec<PathBuf> = std::fs::read_dir(&dir).map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
-        v.sort();
-        out.extend(v.into_iter().map(|p| (state.to_string(), p)));
-    }
-    out
+    custodian_kit::store::job_folders(jobs_root)
 }
 
-/// The reading a receipt made, as the index keeps it: a run that read a spec (`reading`, or `run` before the kit's
-/// word), accepted, not a reuse, whose record is where the receipt says or in its job's folder.
-fn reading_row_of(root: &Path, r: &Receipt, folders: &[(String, PathBuf)]) -> Option<ReadingRow> {
-    if !(r.command == "reading" || r.command == "run") || r.reused_seq.is_some() || !r.accepted || r.spec_hash.is_none() {
-        return None;
-    }
-    let json = r.outputs.iter().find(|o| o.ends_with(".json"))?;
-    let page = r.outputs.iter().find(|o| o.ends_with(".md")).cloned().unwrap_or_else(|| json.replace(".json", ".md"));
-    let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_string_lossy().into_owned();
-    let found = if root.join(json).is_file() {
-        Some((json.clone(), page.clone()))
-    } else {
-        // the job's folder, wherever its state is now: readings/<name>/<file>
-        let name = Path::new(json).file_name()?.to_string_lossy().into_owned();
-        let job_first = folders.iter().filter(|(_, d)| r.job.as_deref().is_some_and(|j| custodian_kit::jobs::job_file(d).id.as_deref() == Some(j))).chain(folders.iter());
-        job_first.map(|(_, d)| d.join("readings").join(&r.name).join(&name)).find(|p| p.is_file()).map(|p| (rel(&p), rel(&p.with_extension("md"))))
-    }?;
-    let report = custodian_kit::reading::load(&root.join(&found.0)).ok()?;
+/// The reading a receipt made, as the index keeps it: which receipt made a reading and where its record and page
+/// are now is differences_kit's one rule (`reading_of`, read from the receipts); the index adds what the record says.
+fn reading_row_of(p: &differences_kit::Project, r: &Receipt, folders: &[(String, PathBuf)]) -> Option<ReadingRow> {
+    let found = differences_kit::reading_of(p, r, folders)?;
+    let report = custodian_kit::reading::load(&p.at(&found.record)).ok()?;
     let digest = custodian_kit::api::Reading { report: report.clone() }.digest();
     Some(ReadingRow {
         seq: r.seq,
@@ -558,8 +539,8 @@ fn reading_row_of(root: &Path, r: &Receipt, folders: &[(String, PathBuf)]) -> Op
         index_key: r.index_key.clone().or_else(|| r.code_digest.clone()).unwrap_or_default(),
         word: "none".into(),
         stamp: report.stamp.clone(),
-        page: found.1,
-        record: found.0,
+        page: found.page,
+        record: found.record,
         reading_digest: digest,
         job: r.job.clone(),
     })

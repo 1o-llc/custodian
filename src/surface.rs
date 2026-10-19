@@ -990,6 +990,10 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--name", each = plain)]
         pub name: Option<OsString>,
+        /// The job it is part of (the running one by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
     }
 }
 
@@ -1014,6 +1018,10 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--operation", each = operation_word)]
         pub operation: Option<OsString>,
+        /// The job it is part of (the running one by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
     }
 }
 
@@ -1030,6 +1038,10 @@ leaf! {
         #[builder(init_required, into)]
         #[arg(positional, each = plain)]
         pub plan: OsString,
+        /// The job it is part of (the running one by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
     }
 }
 
@@ -1604,6 +1616,7 @@ fn read_transform(w: &mut Words) -> Result<Transform> {
 
 fn read_plan_make(w: &mut Words) -> Result<PlanMake> {
     let name = kv(w, "--name")?;
+    let job = kv(w, "--job")?;
     // the intent is every word left, as one
     let mut words = Vec::new();
     while let Some(p) = w.positional() {
@@ -1612,18 +1625,20 @@ fn read_plan_make(w: &mut Words) -> Result<PlanMake> {
     if words.is_empty() {
         return Err(Code::LineRefused.refuse("custodian plan make names its intent"));
     }
-    Ok(PlanMake { intent: words.join(" ").into(), name })
+    Ok(PlanMake { intent: words.join(" ").into(), name, job })
 }
 
 fn read_plan_approve(w: &mut Words) -> Result<PlanApprove> {
     let operation = kv(w, "--operation")?;
+    let job = kv(w, "--job")?;
     let plan = need(w, "plan", "plan approve")?;
     let step = need(w, "step", "plan approve")?;
-    Ok(PlanApprove { plan, step, operation })
+    Ok(PlanApprove { plan, step, operation, job })
 }
 
 fn read_plan_show(w: &mut Words) -> Result<PlanShow> {
-    Ok(PlanShow { plan: need(w, "plan", "plan show")? })
+    let job = kv(w, "--job")?;
+    Ok(PlanShow { plan: need(w, "plan", "plan show")?, job })
 }
 
 fn read_decide(w: &mut Words) -> Result<Decide> {
@@ -1706,8 +1721,11 @@ mod tests {
             Custodian::transform().spec("add-digest.toml").write().job("j-5").argv(),
             Custodian::transform().revert("r.json").argv(),
             Custodian::plan().make("carry_a_digest").name("digest").argv(),
+            Custodian::plan().make("carry_a_digest").name("digest").job("j-5").argv(),
             Custodian::plan().approve("digest", "1").operation("add_field").argv(),
+            Custodian::plan().approve("digest", "1").job("j-5").argv(),
             Custodian::plan().show("digest").argv(),
+            Custodian::plan().show("digest").job("j-5").argv(),
             Custodian::decide().id("q-1").answer("sqlite").why("the_journal_is").argv(),
             Custodian::decide().argv(),
             Custodian::linkage().add("x").kind("synchronized").why("same_keys").bind(["core_lib::Config", "app::Settings"]).argv(),

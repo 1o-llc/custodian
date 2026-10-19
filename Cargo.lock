@@ -585,7 +585,7 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "abut",
  "big-bad-bool",
@@ -623,7 +623,7 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.3.0"
+version = "0.3.1"
 dependencies = [
  "big-bad-bool",
  "bundles",
@@ -767,12 +767,13 @@ dependencies = [
 
 [[package]]
 name = "differences_kit"
-version = "0.1.0"
+version = "0.1.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "b4f97f0a6d207f6c121b6e49c1e97f91731438af286c30d34e67c02fc13a0742"
+checksum = "953bde698667119993e2289092efcd17bbe682d913cd3f58b9cbc2f136a90862"
 dependencies = [
  "big-bad-bool",
  "change_history",
+ "custodian_kit",
  "diff_history",
  "liaise",
  "pathgen",
