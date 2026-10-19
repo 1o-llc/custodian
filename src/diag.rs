@@ -17,7 +17,7 @@ fn log_target(ctx: &Ctx, log: &str) -> Result<String> {
         let mut text = String::new();
         std::io::Read::read_to_string(&mut std::io::stdin(), &mut text).map_err(|e| Code::ReadingUnreadable.refuse(e))?;
         let dir = match ctx.mode.project() {
-            Some(p) => p.layout.dir::<crate::layout::PlanFile>(&[("name", "x")])?,
+            Some(p) => p.layout.dir::<crate::layout::LogFile>(&[("name", "x")])?,
             None => std::env::temp_dir(),
         };
         let f = dir.join(format!("log-{}.txt", crate::journal::stamp()));
@@ -49,18 +49,18 @@ pub fn diagnostics(ctx: &mut Ctx, action: &str, arg: Option<&str>) -> Result<Ran
     Ok(ran)
 }
 
-/// `custodian triage CODE|@LOGFILE`: the triage job, started, its steps run, closed; its facts page printed.
+/// `custodian triage CODE|@LOGFILE`: custodian_kit's triage template, started and closed as one job; its brief printed.
 pub fn triage(ctx: &mut Ctx, target: &str) -> Result<Ran> {
+    ctx.mode.need_project()?.need_agent()?;
     let target = if target.starts_with('@') || Path::new(target).is_file() { log_target(ctx, target)? } else { target.to_string() };
-    let mut ran = crate::jobs::start(
-        ctx,
-        &crate::jobs::StartAsk { which: Some(format!("triage-{}", readings::slug(target.rsplit('/').next().unwrap_or(&target)))), kind: Some("triage".into()), target: Some(target.clone()), ..Default::default() },
-    )?;
-    let id = ran.job.clone().unwrap_or_default();
-    let closed = crate::jobs::close(ctx, Some(&id))?;
-    ran.printed = closed.printed;
-    ran.said.retain(|s| !s.starts_with("job ") || !s.contains("is open"));
-    ran.said.extend(closed.said);
-    ran.outputs.extend(closed.outputs);
+    let (started, closing, file, said) = custodian_kit::jobs::run_template(&crate::jobs::kit(ctx), "triage", &target, false)?;
+    let mut ran = Ran::named(&started.id);
+    ran.job = Some(started.id.clone());
+    ran.said.extend(started.said);
+    ran.said.extend(said);
+    ran.print(custodian_kit::jobs::render_closing(&closing));
+    let file = if file.is_dir() { file.join("closing.md") } else { file };
+    ran.say(format!("closing receipt: {}", ctx.rel(&file)));
+    ran.outputs = vec![ctx.rel(&file)];
     Ok(ran)
 }

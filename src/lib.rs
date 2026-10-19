@@ -20,6 +20,7 @@ pub mod decide;
 pub mod diag;
 pub mod digest;
 pub mod facade;
+pub mod history;
 pub mod install;
 pub mod jobs;
 pub mod journal;

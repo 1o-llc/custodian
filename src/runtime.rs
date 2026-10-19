@@ -1,109 +1,41 @@
-//! The runner: a job's steps as structured tasks, the queue of jobs scheduled with a quality of service per job
-//! kind, and a checkpoint after every completed stage so an interrupted job resumes where it stopped.
-//!
-//! - A job is a [`JobTask`] on waker_protocol's scheduler, its class the job kind's (`JobKind::qos`: triage is
-//!   interactive, a folder of specs standard, tests and checks batch). Each poll runs one stage and asks to be
-//!   checkpointed (`TaskPoll::Checkpoint`); the scheduler saves the task's bytes through [`JournalCheckpoints`]
-//!   into the journal's `checkpoints` table, the task goes dormant, the runner wakes it, the scheduler restores it
-//!   from those bytes and polls the next stage. A process that stops between stages leaves the job in
-//!   `jobs/running` with its checkpoint; the next `custodian job start` or `custodian run` restores it from the
-//!   journal and goes on from the stage after the last completed one.
-//! - A stage is the steps that do not read each other's receipts. They run as scope tasks on one thread: each step
-//!   is a declared custodian line in a child process (`custodian run <spec> --job <id>`, `custodian test`,
-//!   `custodian check`), polled until it exits, so the stage's steps run at the same time and are recorded in step
-//!   order, each with a receipt of its own.
-//! - The command line runs this same runner in its own process; `custodian serve` runs it for a request.
+//! The queue's runner: `custodian run` in agent mode puts every queued job folder on waker_protocol's scheduler, one
+//! task per job, its quality of service its kind's (`JobKind::qos`: triage interactive, a folder of specs standard,
+//! features batch). One job runs at a time (custodian_kit's rule), so a task whose turn has not come yields and the
+//! scheduler picks by class each round. A job has two stages, custodian_kit's `start` (its steps) and `close`
+//! (its closing receipt); after the first, the task asks to be checkpointed, the scheduler saves its bytes through
+//! [`JournalCheckpoints`] into the journal's `checkpoints` table, and restores it from them for the second. A process
+//! that stops between the two leaves the job in `jobs/running` with its checkpoint; the next `custodian run` or
+//! `custodian job start` restores it from the journal and closes it, without running its steps again.
 
 #![allow(unsafe_code)]
 
 use crate::codes::{Code, Result};
-use crate::decide;
-use crate::facade::{self, Ctx, External, ExternalNames};
+use crate::facade::{Ctx, Ran};
 use crate::journal::Journal;
-use crate::surface::{Check, Run, Test};
-use custodian_kit::jobs::From as StepFrom;
+use crate::jobs::{self, StartAsk};
 use serde::{Deserialize, Serialize};
-use std::io::Read;
 use std::path::{Path, PathBuf};
-use std::process::Child;
 use std::sync::Mutex;
-use std::time::Instant;
 use waker_protocol::{derive_protocol_task_vtable, CheckpointReason, CheckpointStore, ProtocolTask, RetentionPolicy, TaskId, TaskPoll, TaskPolicy, TaskState, WakeReason, WakerProtocol};
 use waker_tables::VTableKey;
 
-/// One step of a job, as planned.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StepPlan {
-    pub name: String,
-    /// A reading kind (`diagnostics`, `reach`, ...), `test` or `check`.
-    pub kind: String,
-    pub target: Option<String>,
-    /// One reading per value an earlier step's reading gave.
-    pub for_each: Option<StepFrom>,
-    /// The change an `affected_tests` step reads: the values an earlier step's reading gave.
-    pub change_items: Option<StepFrom>,
-    /// Extra spec lines (TOML).
-    pub with: Option<String>,
-    /// A spec file in the job's folder (a folder of specs), relative to the root.
-    pub spec: Option<String>,
-}
-
-impl StepPlan {
-    /// The step it reads, if any.
-    pub fn reads(&self) -> Option<&str> {
-        self.for_each.as_ref().or(self.change_items.as_ref()).map(|f| f.step.as_str())
-    }
-}
-
-/// One step, done.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct StepDone {
-    pub step: String,
-    /// The lines it ran, as declared.
-    pub lines: Vec<String>,
-    /// The receipts of those lines (this runner's, one per line).
-    pub seqs: Vec<i64>,
-    pub accepted: bool,
-    /// Why it did not run (the step-input gate's reason).
-    pub skipped: Option<String>,
-    /// The spec names its readings went under.
-    pub readings: Vec<String>,
-}
-
-/// A job as the runner holds it, and as its checkpoint is saved.
+/// A queued job as the runner holds it, and as its checkpoint is saved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct JobState {
-    pub job: String,
-    pub kind: String,
-    pub target: Option<String>,
     pub root: PathBuf,
     pub exe: PathBuf,
-    /// The job's folder in `jobs/running`.
-    pub folder: PathBuf,
-    pub stages: Vec<Vec<StepPlan>>,
-    /// The next stage to run.
-    pub next: usize,
-    pub done: Vec<StepDone>,
-    /// Read again rather than reuse (the job was started with `--again`).
+    /// The folder's name in `jobs/queued`, then `jobs/running`.
+    pub folder: String,
+    pub kind: String,
+    /// The job's id, once started.
+    pub job: Option<String>,
+    /// 0: to start; 1: to close; 2: done.
+    pub stage: u8,
     pub again: bool,
-}
-
-/// Stages from steps: a step runs in the stage after the step it reads; a folder of specs runs one spec a stage.
-pub fn stages_of(steps: Vec<StepPlan>, in_order: bool) -> Vec<Vec<StepPlan>> {
-    if in_order {
-        return steps.into_iter().map(|s| vec![s]).collect();
-    }
-    let mut level: Vec<(usize, StepPlan)> = Vec::new();
-    for s in steps {
-        let l = s.reads().and_then(|dep| level.iter().find(|(_, p)| p.name == dep).map(|(l, _)| l + 1)).unwrap_or(0);
-        level.push((l, s));
-    }
-    let max = level.iter().map(|(l, _)| *l).max().map_or(0, |m| m + 1);
-    let mut out: Vec<Vec<StepPlan>> = vec![Vec::new(); max];
-    for (l, s) in level {
-        out[l].push(s);
-    }
-    out
+    /// What each stage said.
+    pub said: Vec<String>,
+    pub outputs: Vec<String>,
+    pub failed: Option<String>,
 }
 
 /// The job queue's checkpoint store: the journal's `checkpoints` table.
@@ -123,7 +55,7 @@ impl CheckpointStore for JournalCheckpoints {
     fn save(&self, _task_id: TaskId, payload: Vec<u8>) -> std::result::Result<i64, String> {
         let st: JobState = serde_json::from_slice(&payload).map_err(|e| e.to_string())?;
         let j = self.journal.lock().map_err(|e| e.to_string())?;
-        j.save_checkpoint(&st.job, st.next as i64, &payload).map_err(|e| e.to_string())
+        j.save_checkpoint(st.job.as_deref().unwrap_or(&st.folder), st.stage as i64, &payload).map_err(|e| e.to_string())
     }
 
     fn load(&self, handle: &i64) -> std::result::Result<Vec<u8>, String> {
@@ -141,34 +73,69 @@ impl CheckpointStore for JournalCheckpoints {
 #[derive(Debug)]
 pub struct JobTask {
     state: JobState,
-    /// Bytes that did not restore: the task ends at its next poll.
-    broken: Option<String>,
+}
+
+fn ctx_of(st: &JobState) -> Result<Ctx> {
+    let mut ctx = Ctx::at(&st.root)?;
+    ctx.exe = st.exe.clone();
+    ctx.live = Box::new(|_| {});
+    Ok(ctx)
 }
 
 impl JobTask {
     pub fn new(state: JobState) -> JobTask {
-        JobTask { state, broken: None }
+        JobTask { state }
+    }
+
+    /// One stage; `Ok(false)` when another job holds the turn.
+    fn stage(&mut self) -> Result<bool> {
+        let mut ctx = ctx_of(&self.state)?;
+        match self.state.stage {
+            0 => {
+                let layout = ctx.layout()?.clone();
+                if !jobs::running_ids(&layout)?.is_empty() {
+                    return Ok(false);
+                }
+                let ran = jobs::start_now(&mut ctx, &StartAsk { which: Some(self.state.folder.clone()), again: self.state.again, ..StartAsk::default() })?;
+                self.state.job = ran.job.clone();
+                self.state.said.extend(ran.said);
+                self.state.outputs.extend(ran.outputs);
+            }
+            1 => {
+                let ran = jobs::close(&mut ctx, self.state.job.as_deref())?;
+                self.state.said.extend(ran.said);
+                self.state.outputs.extend(ran.outputs);
+            }
+            _ => {}
+        }
+        self.state.stage += 1;
+        Ok(true)
     }
 }
 
 // SAFETY: every function touches only `self`; `restore` accepts any bytes (bytes that are not a JobState make a
-// task that ends at its first poll).
+// task that ends at its first poll, failed).
 unsafe impl ProtocolTask for JobTask {
     unsafe fn poll(&mut self) -> TaskPoll {
-        if self.broken.is_some() {
+        if self.state.failed.is_some() || self.state.stage >= 2 {
             return TaskPoll::Ready;
         }
-        if self.state.next < self.state.stages.len() {
-            let stage = self.state.stages[self.state.next].clone();
-            let done = run_stage(&self.state, &stage);
-            self.state.done.extend(done);
-            self.state.next += 1;
-        }
-        if self.state.next >= self.state.stages.len() {
-            finished(&self.state);
-            TaskPoll::Ready
-        } else {
-            TaskPoll::Checkpoint(CheckpointReason::Manual)
+        match self.stage() {
+            Ok(false) => TaskPoll::Yield,
+            Ok(true) if self.state.stage >= 2 => {
+                if let Ok(ctx) = ctx_of(&self.state) {
+                    if let Some(j) = ctx.journal.as_ref() {
+                        let _ = j.remove_checkpoints_of(self.state.job.as_deref().unwrap_or(&self.state.folder));
+                    }
+                }
+                TaskPoll::Ready
+            }
+            Ok(true) => TaskPoll::Checkpoint(CheckpointReason::Manual),
+            Err(e) => {
+                self.state.failed = Some(e.to_string());
+                write_report(&self.state);
+                TaskPoll::Ready
+            }
         }
     }
 
@@ -178,13 +145,13 @@ unsafe impl ProtocolTask for JobTask {
 
     unsafe fn restore(bytes: &[u8]) -> Self {
         match serde_json::from_slice::<JobState>(bytes) {
-            Ok(state) => JobTask { state, broken: None },
-            Err(e) => JobTask { state: JobState::default(), broken: Some(e.to_string()) },
+            Ok(state) => JobTask { state },
+            Err(e) => JobTask { state: JobState { failed: Some(format!("a checkpoint that does not restore: {e}")), stage: 2, ..JobState::default() } },
         }
     }
 
-    fn footprint_estimate(&self) -> usize {
-        std::mem::size_of::<Self>() + self.state.stages.iter().map(|s| s.len() * 256).sum::<usize>()
+    unsafe fn cleanup(&mut self) {
+        write_report(&self.state);
     }
 }
 
@@ -193,365 +160,134 @@ derive_protocol_task_vtable!(JobTask, JOB_TASK_VTABLE);
 /// The scheduler's key for job tasks.
 pub const JOB_KEY: VTableKey = VTableKey { segment: "custodian", kind: "job", version: 1 };
 
-/// A finished job's steps are in the journal (its `step` events); its checkpoints are no longer needed.
-fn finished(st: &JobState) {
-    if let Ok(ctx) = Ctx::at(&st.root) {
-        if let Some(j) = ctx.journal.as_ref() {
-            let _ = j.remove_checkpoints_of(&st.job);
-            let _ = j.event("job", Some(&st.job), &st.job, "steps-done", &format!("{} steps", st.done.len()), None);
-        }
+/// What the tasks said, collected as they end (a task's state is its own until then).
+static REPORTS: Mutex<Vec<JobState>> = Mutex::new(Vec::new());
+
+fn write_report(st: &JobState) {
+    if let Ok(mut r) = REPORTS.lock() {
+        r.retain(|x| x.folder != st.folder);
+        r.push(st.clone());
     }
 }
 
-/// A step's line, as declared, and the spec names its readings go under.
-struct Planned {
-    step: String,
-    ext: External,
-    readings: Vec<String>,
-}
-
-/// The values an earlier step's readings gave: rows of a kind, one field of each.
-pub fn values_from(ctx: &Ctx, st: &JobState, from: &StepFrom) -> Vec<String> {
-    let Some(journal) = ctx.journal.as_ref() else { return Vec::new() };
-    let Some(prev) = st.done.iter().find(|d| d.step == from.step) else { return Vec::new() };
-    let mut out = std::collections::BTreeSet::new();
-    for name in &prev.readings {
-        let Ok(Some(row)) = journal.step_reading(&st.job, name) else { continue };
-        let Ok(report) = custodian_kit::reading::load(&st.root.join(&row.record)) else { continue };
-        for r in report.query.results.iter().chain(&report.unresolved).filter(|r| r.kind == from.row) {
-            let v = match from.field.as_str() {
-                "label" => Some(r.label.clone()),
-                "path" => r.path.clone(),
-                "crate" => r.crate_name.clone(),
-                f => r.attributes.get(f).cloned(),
-            };
-            if let Some(v) = v.filter(|v| !v.is_empty()) {
-                out.insert(v);
-            }
-        }
-    }
-    out.into_iter().collect()
-}
-
-fn spec_text(name: &str, question: &str, kind: &str, target: &str, change: &[String], with: Option<&str>) -> String {
-    let mut s = format!(
-        "name = {}\nquestion = {}\nkind = {}\ntarget = {}\n",
-        toml::Value::String(name.into()),
-        toml::Value::String(question.into()),
-        toml::Value::String(kind.into()),
-        toml::Value::String(target.into())
-    );
-    if let Some(w) = with {
-        s.push_str(w);
-        s.push('\n');
-    }
-    if !change.is_empty() {
-        s.push_str(&format!("\n[change]\nitems = {}\n", toml::Value::Array(change.iter().map(|v| toml::Value::String(v.clone())).collect())));
-    }
-    s
-}
-
-/// The lines a step runs, or why it does not run.
-fn plan_step(ctx: &Ctx, st: &JobState, step: &StepPlan) -> Result<std::result::Result<Vec<Planned>, String>> {
-    let job_target = st.target.clone().unwrap_or_default();
-    let target = step.target.as_deref().map(|t| t.replace("{target}", &job_target));
-    let at = |line: &dyn Fn() -> Result<External>| line().map(|e| e.in_dir(&st.root));
-    match step.kind.as_str() {
-        "test" => {
-            let mut l = Test { job: Some(st.job.clone().into()), ..Test::default() };
-            if target.as_deref() == Some("all") {
-                l.all = true;
-            } else {
-                l.affected = true;
-            }
-            let ext = at(&|| External::at("custodian.test", &st.exe, &l.clone().rooted::<crate::surface::Custodian>()))?;
-            return Ok(Ok(vec![Planned { step: step.name.clone(), ext, readings: Vec::new() }]));
-        }
-        "check" => {
-            let l = Check { which: target.clone().unwrap_or_else(|| "all".into()).into(), job: Some(st.job.clone().into()) };
-            let ext = at(&|| External::at("custodian.check", &st.exe, &l.clone().rooted::<crate::surface::Custodian>()))?;
-            return Ok(Ok(vec![Planned { step: step.name.clone(), ext, readings: Vec::new() }]));
-        }
-        _ => {}
-    }
-    let run = |spec: &Path, name: &str| -> Result<Planned> {
-        // the line runs at the root, so it names the spec from there
-        let rel = spec.strip_prefix(&st.root).unwrap_or(spec);
-        let l = Run { target: Some(rel.as_os_str().to_os_string()), job: Some(st.job.clone().into()), again: st.again, kind: None };
-        let ext = External::at("custodian.run", &st.exe, &l.rooted::<crate::surface::Custodian>())?.in_dir(&st.root);
-        Ok(Planned { step: step.name.clone(), ext, readings: vec![name.to_string()] })
-    };
-    if let Some(spec) = &step.spec {
-        let path = st.root.join(spec);
-        let name = custodian_kit::api::ReadingSpec::from_path(&path).map(|s| s.name).unwrap_or_else(|_| step.name.clone());
-        return Ok(Ok(vec![run(&path, &name)?]));
-    }
-    let base = format!("{}-{}", st.kind, step.name);
-    let question = format!("job {} step {}", st.job, step.name);
-    let steps_dir = st.folder.join("steps");
-    // a step's spec is written in 1o, as custodian_kit writes one; a value 1o cannot carry (a double quote) keeps it
-    // in TOML, which is still read
-    let write = |name: &str, text: &str| -> Result<PathBuf> {
-        let spec = custodian_kit::api::ReadingSpec::from_toml(text)?;
-        let unwritable = crate::codes::Refusal::from(custodian_kit::api::RefusalCode::OneoUnwritable.refuse("")).code;
-        let (p, body) = match spec.to_1o() {
-            Ok(o) => (steps_dir.join(custodian_kit::oneo::Doc::Reading.file_name(name)), o),
-            Err(e) => {
-                let r = crate::codes::Refusal::from(e);
-                if r.code != unwritable {
-                    return Err(r);
-                }
-                (steps_dir.join(format!("{name}.toml")), text.to_string())
-            }
-        };
-        crate::layout::write_whole(&p, body.as_bytes())?;
-        Ok(p)
-    };
-    if let Some(from) = &step.for_each {
-        let values = values_from(ctx, st, from);
-        let d = decide::step_input(&step.name, &from.step, &values);
-        if !d.go {
-            return Ok(Err(d.reason));
-        }
-        let mut out = Vec::new();
-        for v in values {
-            let name = format!("{base}-{}", crate::readings::slug(&v));
-            let p = write(&name, &spec_text(&name, &question, &step.kind, &v, &[], step.with.as_deref()))?;
-            out.push(run(&p, &name)?);
-        }
-        return Ok(Ok(out));
-    }
-    let mut change = Vec::new();
-    if let Some(from) = &step.change_items {
-        change = values_from(ctx, st, from);
-        let d = decide::step_input(&step.name, &from.step, &change);
-        if !d.go {
-            return Ok(Err(d.reason));
-        }
-    }
-    let target = target.unwrap_or_else(|| "*".into());
-    let target = match target.strip_prefix('@') {
-        Some(file) => std::fs::read_to_string(st.root.join(file)).or_else(|_| std::fs::read_to_string(file)).map_err(|e| Code::JobFile.refuse(format!("{file}: {e}")))?,
-        None => target,
-    };
-    let p = write(&base, &spec_text(&base, &question, &step.kind, &target, &change, step.with.as_deref()))?;
-    Ok(Ok(vec![run(&p, &base)?]))
-}
-
-/// A step's child process, polled by scope until it exits.
-struct StepProc {
-    slot: usize,
-    child: Child,
-    out: Option<std::thread::JoinHandle<String>>,
-    err: Option<std::thread::JoinHandle<String>>,
-    started: Instant,
-}
-
-/// What a child left: its status, its output, how long it took.
-type Exited = (Option<i32>, String, String, i64);
-
-impl<'env> scope::ScopedTask<'env, Vec<Option<Exited>>> for StepProc {
-    fn poll(&mut self, cx: &mut scope::Cx<'_, 'env, Vec<Option<Exited>>>) -> scope::TaskPoll {
-        match self.child.try_wait() {
-            Ok(Some(status)) => {
-                let out = self.out.take().and_then(|h| h.join().ok()).unwrap_or_default();
-                let err = self.err.take().and_then(|h| h.join().ok()).unwrap_or_default();
-                cx.resources[self.slot] = Some((status.code(), out, err, self.started.elapsed().as_millis() as i64));
-                scope::TaskPoll::Ready
-            }
-            Ok(None) => {
-                std::thread::sleep(std::time::Duration::from_millis(5));
-                cx.yield_now()
-            }
-            Err(e) => {
-                cx.resources[self.slot] = Some((None, String::new(), e.to_string(), self.started.elapsed().as_millis() as i64));
-                scope::TaskPoll::Ready
-            }
-        }
-    }
-}
-
-fn drain(p: Option<impl Read + Send + 'static>) -> Option<std::thread::JoinHandle<String>> {
-    p.map(|mut p| {
-        std::thread::spawn(move || {
-            let mut s = String::new();
-            let _ = p.read_to_string(&mut s);
-            s
-        })
-    })
-}
-
-/// Runs one stage: every step's lines at once, recorded in step order.
-fn run_stage(st: &JobState, stage: &[StepPlan]) -> Vec<StepDone> {
-    let mut ctx = match Ctx::at(&st.root) {
-        Ok(c) => c,
-        Err(e) => return stage.iter().map(|s| StepDone { step: s.name.clone(), lines: Vec::new(), seqs: Vec::new(), accepted: false, skipped: Some(e.to_string()), readings: Vec::new() }).collect(),
-    };
-    let mut planned: Vec<Planned> = Vec::new();
-    let mut done: Vec<StepDone> = Vec::new();
-    for step in stage {
-        match plan_step(&ctx, st, step) {
-            Ok(Ok(p)) if !p.is_empty() => planned.extend(p),
-            Ok(Ok(_)) => done.push(StepDone { step: step.name.clone(), lines: Vec::new(), seqs: Vec::new(), accepted: true, skipped: Some("nothing to run".into()), readings: Vec::new() }),
-            Ok(Err(reason)) | Err(crate::codes::Refusal { message: reason, .. }) => {
-                if let Some(j) = ctx.journal.as_ref() {
-                    let _ = j.event("step", Some(&st.job), &step.name, "skipped", &reason, None);
-                }
-                done.push(StepDone { step: step.name.clone(), lines: Vec::new(), seqs: Vec::new(), accepted: true, skipped: Some(reason), readings: Vec::new() })
-            }
-        }
-    }
-    // start every line of the stage, then poll them together
-    let mut exits: Vec<Option<Exited>> = vec![None; planned.len()];
-    let mut procs = Vec::new();
-    let mut kept: Vec<External> = Vec::new();
-    for (slot, p) in planned.iter_mut().enumerate() {
-        let ext = std::mem::replace(&mut p.ext, External::shell("none", &xccute_runtime::RawCommand(String::new())));
-        if let Some(j) = ctx.journal.as_ref() {
-            let _ = j.event("step", Some(&st.job), &p.step, "running", ext.preview.display(), None);
-        }
-        let started = Instant::now();
-        match facade::spawn(ext) {
-            Ok((mut child, ext)) => {
-                let out = drain(child.stdout.take());
-                let err = drain(child.stderr.take());
-                procs.push(StepProc { slot, child, out, err, started });
-                kept.push(ext);
-            }
-            Err(e) => {
-                exits[slot] = Some((None, String::new(), e.to_string(), 0));
-                kept.push(External::shell("refused", &xccute_runtime::RawCommand(e.to_string())));
-            }
-        }
-    }
-    let _report = scope::run_scoped(&mut exits, |s| {
-        for p in procs {
-            let name = format!("step-{}", p.slot);
-            s.spawn_named(name, p);
-        }
-    });
-    // record in step order
-    let mut by_step: Vec<StepDone> = Vec::new();
-    for (i, p) in planned.iter().enumerate() {
-        let (code, out, err, millis) = exits[i].clone().unwrap_or((None, String::new(), "the step did not run".into(), 0));
-        let names = ExternalNames { name: p.step.clone(), job: Some(st.job.clone()), outputs: p.readings.clone() };
-        let r = facade::finish_external(&mut ctx, &kept[i], names, code, out, err, millis);
-        let (seq, accepted, line) = match &r {
-            Ok(run) => (run.receipt.seq, run.accepted, run.receipt.line.clone()),
-            Err(_) => (0, false, kept[i].preview.display().to_string()),
-        };
-        if let Some(j) = ctx.journal.as_ref() {
-            let _ = j.event("step", Some(&st.job), &p.step, if accepted { "done" } else { "failed" }, &line, Some(seq));
-        }
-        match by_step.iter_mut().find(|d| d.step == p.step) {
-            Some(d) => {
-                d.lines.push(line);
-                d.seqs.push(seq);
-                d.accepted &= accepted;
-                d.readings.extend(p.readings.clone());
-            }
-            None => by_step.push(StepDone { step: p.step.clone(), lines: vec![line], seqs: vec![seq], accepted, skipped: None, readings: p.readings.clone() }),
-        }
-    }
-    let mut ordered = Vec::new();
-    for step in stage {
-        if let Some(d) = by_step.iter().find(|d| d.step == step.name).or_else(|| done.iter().find(|d| d.step == step.name)) {
-            ordered.push(d.clone());
-        }
-    }
-    ordered
-}
-
-/// How far the runner goes before it returns: every stage of every job, or (an interruption, for a test) this many.
+/// How far the runner goes before it returns: every stage, or (an interruption, for a test) this many.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Limit {
     pub stages: Option<usize>,
 }
 
-/// What the runner did with each job.
-#[derive(Debug, Clone)]
+/// What the runner did.
+#[derive(Debug, Clone, Default)]
 pub struct RunnerReport {
-    pub finished: Vec<String>,
-    /// Jobs left dormant with a checkpoint (the limit was reached).
-    pub interrupted: Vec<String>,
+    pub said: Vec<String>,
+    pub outputs: Vec<String>,
     pub failed: Vec<(String, String)>,
+    /// Jobs left with a checkpoint (the limit was reached).
+    pub interrupted: Vec<String>,
 }
 
-/// Runs jobs on the scheduler until each has run every stage (or the limit is reached).
-pub fn run_jobs(journal_path: &Path, jobs: Vec<JobState>, limit: Limit) -> Result<RunnerReport> {
-    let store = JournalCheckpoints::open(journal_path)?;
+fn run_states(ctx: &Ctx, states: Vec<JobState>, limit: Limit) -> Result<RunnerReport> {
+    let store = JournalCheckpoints::open(&ctx.journal()?.path)?;
     let mut sched = WakerProtocol::new(store);
     sched.register_vtable(JOB_KEY, &JOB_TASK_VTABLE);
+    if let Ok(mut r) = REPORTS.lock() {
+        r.clear();
+    }
     let mut handles = Vec::new();
-    for st in jobs {
+    for st in states {
         let qos = crate::words::JobKind::of_word(&st.kind).map(|k| k.qos()).unwrap_or(waker_protocol::QoSClass::Standard);
         let policy = TaskPolicy { qos, retention: RetentionPolicy { keep_latest: 1, retain_on_completion: false, retain_on_failure: true, retain_on_cancel: true }, ..TaskPolicy::default() };
-        let job = st.job.clone();
+        let folder = st.folder.clone();
         let h = sched.spawn_box(JOB_KEY, Box::new(JobTask::new(st)), policy).map_err(|e| Code::StepFailed.refuse(e))?;
         h.wake(WakeReason::Manual).map_err(|e| Code::StepFailed.refuse(e))?;
-        handles.push((job, h));
+        handles.push((folder, h));
     }
     let mut stages = 0usize;
-    let mut interrupted = Vec::new();
+    let mut report = RunnerReport::default();
     loop {
         sched.run_once().map_err(|e| Code::StepFailed.refuse(e))?;
         let mut live = 0;
-        for (job, h) in &handles {
+        let mut stop = false;
+        for (folder, h) in &handles {
             let Some(entry) = sched.tasks.get(h.id()) else { continue };
             live += 1;
             if entry.state == TaskState::Dormant {
                 stages += 1;
                 if limit.stages.is_some_and(|n| stages >= n) {
-                    interrupted.push(job.clone());
+                    report.interrupted.push(folder.clone());
+                    stop = true;
                     continue;
                 }
                 h.wake(WakeReason::Resume).map_err(|e| Code::StepFailed.refuse(e))?;
             }
         }
-        if live == 0 || !interrupted.is_empty() {
+        if live == 0 || stop {
             break;
         }
     }
-    let mut finished = Vec::new();
-    let mut failed = Vec::new();
-    for (id, state) in sched.finished.drain(..) {
-        let job = handles.iter().find(|(_, h)| h.id() == id).map(|(j, _)| j.clone()).unwrap_or_default();
-        match state {
-            TaskState::Failed(msg) => failed.push((job, msg)),
-            _ => finished.push(job),
+    for st in REPORTS.lock().map(|r| r.clone()).unwrap_or_default() {
+        report.said.push(format!("job folder {} ({}, {:?}):", st.folder, st.kind, crate::words::JobKind::of_word(&st.kind).map(|k| k.qos()).unwrap_or(waker_protocol::QoSClass::Standard)));
+        report.said.extend(st.said.iter().map(|s| format!("  {s}")));
+        report.outputs.extend(st.outputs.clone());
+        if let Some(f) = &st.failed {
+            report.failed.push((st.folder.clone(), f.clone()));
+            report.said.push(format!("  failed: {f}"));
         }
     }
-    Ok(RunnerReport { finished, interrupted, failed })
+    for f in &report.interrupted {
+        report.said.push(format!("job folder {f} stopped between its stages; its checkpoint is in the journal (custodian run or custodian job start resumes it)"));
+    }
+    Ok(report)
+}
+
+/// The queued folders `names`, scheduled together.
+pub fn run_folders(ctx: &Ctx, names: &[String], again: bool, limit: Limit) -> Result<RunnerReport> {
+    let layout = ctx.layout()?.clone();
+    let mut states = Vec::new();
+    for n in names {
+        let jf = custodian_kit::jobs::job_file(&layout.job_dir("queued", n)?);
+        states.push(JobState { root: layout.root.clone(), exe: ctx.exe.clone(), folder: n.clone(), kind: jf.kind.unwrap_or_else(|| "specs".into()), job: None, stage: 0, again, ..JobState::default() });
+    }
+    run_states(ctx, states, limit)
+}
+
+/// The jobs in `jobs/running` whose checkpoint is in the journal: restored and run on from their next stage.
+pub fn resume(ctx: &mut Ctx, limit: Limit) -> Result<Option<Ran>> {
+    let journal = ctx.journal()?;
+    let mut states = Vec::new();
+    for id in jobs::running_ids(ctx.layout()?)? {
+        if let Some((_, _, bytes)) = journal.latest_checkpoint(&id)? {
+            if let Ok(mut st) = serde_json::from_slice::<JobState>(&bytes) {
+                st.exe = ctx.exe.clone();
+                st.said.clear();
+                st.said.push(format!("resumed job {id} at its {} (its checkpoint after its start)", if st.stage == 1 { "close" } else { "start" }));
+                states.push(st);
+            }
+        }
+    }
+    if states.is_empty() {
+        return Ok(None);
+    }
+    let ids: Vec<String> = states.iter().filter_map(|s| s.job.clone()).collect();
+    let report = run_states(ctx, states, limit)?;
+    let mut ran = Ran::named(ids.join(", "));
+    ran.job = ids.first().cloned();
+    ran.said = report.said;
+    ran.outputs = report.outputs;
+    if !report.failed.is_empty() {
+        ran.code = 1;
+    }
+    Ok(Some(ran))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
 
-    fn step(name: &str, reads: Option<&str>) -> StepPlan {
-        StepPlan {
-            name: name.into(),
-            kind: "reach".into(),
-            target: None,
-            for_each: reads.map(|s| StepFrom { step: s.into(), row: "r".into(), field: "f".into() }),
-            change_items: None,
-            with: None,
-            spec: None,
-        }
-    }
-
-    #[test]
-    fn a_step_runs_after_the_step_it_reads_and_beside_the_rest() {
-        let stages = stages_of(vec![step("codes", None), step("reach", Some("codes")), step("tests", Some("codes")), step("marks", None)], false);
-        let names: Vec<Vec<&str>> = stages.iter().map(|s| s.iter().map(|p| p.name.as_str()).collect()).collect();
-        assert_eq!(names, [vec!["codes", "marks"], vec!["reach", "tests"]]);
-        assert_eq!(stages_of(vec![step("a", None), step("b", None)], true).len(), 2, "a folder of specs runs in order");
-    }
-
     #[test]
     fn bytes_that_are_not_a_job_restore_to_a_task_that_ends() {
         let mut t = unsafe { JobTask::restore(b"not json") };
-        assert!(t.broken.is_some());
+        assert!(t.state.failed.is_some());
         assert!(matches!(unsafe { t.poll() }, TaskPoll::Ready));
     }
 }

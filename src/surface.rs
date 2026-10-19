@@ -139,6 +139,10 @@ pub struct Job {
     #[builder(into)]
     #[arg(kv = "--target")]
     pub target: Option<OsString>,
+    /// What the job is for, in the asker's words: its task history's intent record.
+    #[builder(into)]
+    #[arg(kv = "--intent", each = nonempty)]
+    pub intent: Option<OsString>,
     #[arg(flag = "--again")]
     pub again: bool,
 }
@@ -625,7 +629,7 @@ lines! {
     Run(Run) = "run", "run [SPEC|ROUTE] [--kind KIND] [--job ID] [--again]" => read_run;
     List(List) = "list", "list" => read_list;
     Diff(Diff) = "diff", "diff SPEC [--from SEQ] [--to SEQ]" => read_diff;
-    Job(Job) = "job", "job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]" => read_job;
+    Job(Job) = "job", "job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--intent TEXT] [--again]" => read_job;
     Test(Test) = "test", "test [report] [--affected|--all] [--observe failed|progress|all] [--ref REF]" => read_test;
     Check(Check) = "check", "check sensitivity|mechanism|boundary|supersedes|reads_env|golden|all" => read_check;
     Annotate(Annotate) = "annotate", "annotate [--from CHECK_JSON] [--apply]" => read_annotate;
@@ -688,7 +692,7 @@ fn read_diff(w: &mut Words) -> Result<Diff> {
 }
 
 fn read_job(w: &mut Words) -> Result<Job> {
-    Ok(Job { kind: kv(w, "--kind")?, target: kv(w, "--target")?, again: w.flag("--again"), action: need(w, "action (start, close, brief, import, list)", "job")?, name: pos(w) })
+    Ok(Job { kind: kv(w, "--kind")?, target: kv(w, "--target")?, intent: kv(w, "--intent")?, again: w.flag("--again"), action: need(w, "action (start, close, brief, import, list)", "job")?, name: pos(w) })
 }
 
 fn read_test(w: &mut Words) -> Result<Test> {
@@ -792,7 +796,7 @@ mod tests {
             Custodian::run().argv(),
             Custodian::list().argv(),
             Custodian::diff("env").from("3").to("9").argv(),
-            Custodian::job("start").name("batch").kind("triage").target("CUST0004").again().argv(),
+            Custodian::job("start").name("batch").kind("triage").target("CUST0004").intent("find the raise").again().argv(),
             Custodian::test().action("report").argv(),
             Custodian::test().affected().observe("progress").git_ref("HEAD~1").job("j-2").argv(),
             Custodian::check("all").job("j-3").argv(),

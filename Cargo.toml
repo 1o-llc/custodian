@@ -23,6 +23,8 @@ path = "src/main.rs"
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 custodian_kit = { version = "0.1.0", path = "../custodian_kit" }
+# a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
+task_history = { version = "0.1.0", path = "../task_history" }
 # the checks and the timing report, run as maintenance's own declared lines
 maintenance = { version = "0.1.0", path = "../maintenance_macros/crates/maintenance", features = ["check", "runner"] }
 
@@ -41,8 +43,7 @@ stable_digest = "0.1.1"
 # the .custodian/ layout, declared by derive
 pathgen = { version = "0.1.2", features = ["derive"] }
 pathgen-macros = "0.1.2"
-# a job's steps as structured tasks, the queue with QoS and checkpoints, the observers
-scope = "0.3.1"
+# the job queue with QoS and checkpoints, the observers
 waker_protocol = "0.3.2"
 waker_tables = "0.3.1"
 ob-serve-a-bowl = "0.2.2"

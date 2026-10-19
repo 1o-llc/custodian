@@ -535,11 +535,11 @@ dependencies = [
  "pathgen",
  "pathgen-macros",
  "rusqlite",
- "scope",
  "serde",
  "serde_json",
  "simple_impl_derive",
  "stable_digest",
+ "task_history",
  "toml 0.8.23",
  "uh-tom-mick",
  "waker_protocol",
@@ -2024,16 +2024,6 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "93fc1dc3aaa9bfed95e02e6eadabb4baf7e3078b0bd1b4d7b6b0b68378900502"
 dependencies = [
  "winapi-util",
-]
-
-[[package]]
-name = "scope"
-version = "0.3.1"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "5ebc6a35c10cc6b0f9434cc1ad44819e466995b6bd7389d868a6f266b8201d6d"
-dependencies = [
- "loom",
- "waker_tables",
 ]
 
 [[package]]

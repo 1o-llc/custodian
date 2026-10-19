@@ -87,7 +87,7 @@ pub fn annotate(ctx: &mut Ctx, from: Option<&str>, apply: bool) -> Result<Ran> {
         check_file.as_ref().map(|f| ctx.rel(f)).unwrap_or_else(|| "no check receipt".into())
     ));
     if let Some(p) = ctx.mode.project() {
-        let f = p.layout.path::<layout::PlanFile>(&[("name", "annotate.toml")])?;
+        let f = p.layout.path::<layout::PlanFile>(&[("name", "annotate")])?;
         write_whole(&f, toml::to_string(&plan).map_err(|e| Code::Write.refuse(e))?.as_bytes())?;
         ran.say(format!("plan: {}", p.layout.rel(&f)));
         ran.outputs.push(p.layout.rel(&f));
@@ -156,7 +156,7 @@ pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
     ran.say(format!("judged {} dependencies: {eligible} feature-eligible", judged.len()));
     let spec_file = match ctx.mode.project() {
         Some(p) => {
-            let f = p.layout.path::<layout::PlanFile>(&[("name", "klepto.toml")])?;
+            let f = p.layout.path::<layout::PlanFile>(&[("name", "klepto")])?;
             write_whole(&f, spec_text.as_bytes())?;
             ran.say(format!("code_passenger spec: {}", p.layout.rel(&f)));
             ran.outputs.push(p.layout.rel(&f));

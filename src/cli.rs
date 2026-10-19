@@ -16,6 +16,11 @@ pub fn main_argv(args: &[OsString]) -> i32 {
         println!("{}", usage());
         return 0;
     }
+    // the kit's reading line, run by its job code: read back into the kit's declared line, never journaled here
+    // (the kit keeps its receipt)
+    if args.first().is_some_and(|a| a == "exec-reading") {
+        return exec_reading(&args[1..]);
+    }
     let line = match surface::read(args) {
         Ok(l) => l,
         Err(e) => {
@@ -120,7 +125,7 @@ fn job(ctx: &mut Ctx, l: &surface::Job) -> Result<Ran> {
     ctx.mode.need_project()?.need_agent()?;
     let name = so(&l.name);
     match s(&l.action).as_str() {
-        "start" => crate::jobs::start(ctx, &crate::jobs::StartAsk { which: name, kind: so(&l.kind), target: so(&l.target), again: l.again, ..Default::default() }),
+        "start" => crate::jobs::start(ctx, &crate::jobs::StartAsk { which: name, kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, ..Default::default() }),
         "close" => crate::jobs::close(ctx, name.as_deref()),
         "brief" => crate::jobs::brief(ctx, name.as_deref()),
         "import" => crate::jobs::import(ctx, Path::new(name.as_deref().unwrap_or_default()), crate::runtime::Limit::default()),
@@ -173,7 +178,7 @@ pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
     keep(layout.path::<layout::ConfigFile>(&[("name", "features")])?, custodian_kit::features::SHIPPED_THRESHOLDS)?;
     keep(layout.path::<layout::ConfigFile>(&[("name", "annotate")])?, custodian_kit::annotate::SHIPPED_ANNOTATE)?;
     if settings.mode == FolderMode::Agent {
-        for (kind, text) in crate::jobs::SHIPPED {
+        for (kind, text) in custodian_kit::jobs::SHIPPED_TEMPLATES {
             keep(layout.path::<layout::JobTemplate>(&[("kind", kind)])?, text)?;
         }
     }
@@ -253,4 +258,44 @@ fn macros_by_passenger(ctx: &mut Ctx, ran: &mut Ran) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `custodian exec-reading --spec S --root R --out DIR|- --stamp T [--job ID]`: custodian_kit's declared reading
+/// line (`exec::ExecReading`), as its job code runs it. The words are read back into that line and must be what
+/// it writes; the reading is answered by `custodian_kit::reading::exec_reading`, its summary the last line.
+fn exec_reading(rest: &[OsString]) -> i32 {
+    let mut w = surface::Words::new(&rest.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>());
+    let read = (|| -> Result<(custodian_kit::exec::ExecReadingRooted<custodian_kit::exec::Custodian>, bool)> {
+        let need = |w: &mut surface::Words, k: &str| -> Result<String> { w.kv(k)?.ok_or_else(|| Code::LineRefused.refuse(format!("exec-reading needs {k}"))) };
+        let (spec, root, out, stamp) = (need(&mut w, "--spec")?, need(&mut w, "--root")?, need(&mut w, "--out")?, need(&mut w, "--stamp")?);
+        let job = w.kv("--job")?;
+        let mut line = custodian_kit::exec::Custodian::exec_reading(spec.as_str(), root.as_str(), out.as_str(), stamp.as_str());
+        if let Some(j) = &job {
+            line = line.job(j.as_str());
+        }
+        Ok((line, job.is_some()))
+    })();
+    let (line, in_job) = match read.and_then(|x| w.done("exec-reading").map(|_| x)) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("{e}");
+            return 1;
+        }
+    };
+    use xccute_contract::{CompositeShellCommand, ValidatedCommand};
+    if line.argv()[1..] != *rest || line.validate().is_err() {
+        eprintln!("{}", Code::LineRefused.refuse("exec-reading: the words are not the kit's declared line, in its order"));
+        return 1;
+    }
+    let v = |k: &str| rest.iter().position(|a| a == k).and_then(|i| rest.get(i + 1)).map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
+    match custodian_kit::reading::exec_reading(Path::new(&v("--spec")), Path::new(&v("--root")), &v("--out"), &v("--stamp"), in_job) {
+        Ok(summary) => {
+            println!("{}", serde_json::to_string(&summary).unwrap_or_default());
+            0
+        }
+        Err(e) => {
+            eprintln!("{}", crate::codes::Refusal::from(e));
+            1
+        }
+    }
 }

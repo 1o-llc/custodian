@@ -8,6 +8,15 @@ the first version, not published (the crates.io name `custodian` holds a 0.0.1 p
 
 an agent should read a repository before it works on it, ask what it must ask before the first edit, and leave a record that does not depend on any one conversation. custodian is that record's keeper: every run a declared line with a receipt, every reading dated and kept, every job a folder with a closing receipt. the reasons, in James Hunt's words: docs/SPEC-2026-10-19.md.
 
+### since the first draft of this entry (the same day)
+
+- jobs run through custodian_kit's job code (`jobs::start`, `close`, `brief`, `run_template`; a1ecffd): the command line keeps its declared lines and their receipts, and adds the passenger checkpoints, the intent the asker states (`job start --intent`, an intent record beside the kit's), the job events the observer set reads, and the queue. A job is a task history in James Hunt's typed 1o records (`task_history`, `.custodian/data/history/<task>/<revision>/`), written by the kit; a job name run again opens its next revision. `custodian exec-reading` is the kit's declared reading line, read back into the kit's own declaration and answered by the kit: src/jobs.rs, src/history.rs, src/cli.rs.
+- the queue (src/runtime.rs) schedules queued job folders on waker_protocol by class (triage interactive, specs standard, features batch), one job at a time, two stages each (the kit's start, the kit's close) with a checkpoint between them in the journal; tests/runtime.rs interrupts a job after its start and resumes it at its close. scope is no longer a dependency: the kit runs a job's steps itself.
+- the `.custodian/` parts the kit declares are the kit's descriptors (`store::named`), named here as types; only the parts the command line alone keeps (a reading's record, a check's JSON, a log read from stdin) are declared in src/layout.rs.
+- `custodian count [ROUTE] [--by crate|language] [--tests]`, `count report A B` (a count named by its receipt number, a job, `<job>:open` or `<job>:close`, a commit or a date; a name that fits several is refused, CUST1205) and `count history [ROUTE]`, over custodian_kit's `count` kind and `count::compare_counts`: src/counting.rs. `diff` of two counts says what grew.
+- `init --macros` runs `code-passenger dep add <crate> maintenance --path ...` (and big-bad-bool for a crate that declares a level word), `annotate --apply` runs `code-passenger attr place` per plan line, `features --apply` runs `code-passenger gate --write`, each through the executor with a receipt; `job start` and `job close` take a passenger checkpoint when code-passenger is installed, kept in the folder's `passenger.json`.
+- found in custodian_kit a1ecffd, the kit's to fix: a folder-of-specs job writes `counts.json` into the folder before listing its specs and reads it as a JSON spec (CUST0002), so such a job is refused (tests/cli.rs `a_folder_of_specs_is_a_job_from_start_to_close` is ignored with that reason); a reading's receipt keeps the path it had in `jobs/running`, which moves to `jobs/done` at close, so a later reuse of it fails to copy (an imported job reads again).
+
 ### the surface
 
 - every subcommand is a line declared once with simple_impl_derive 0.2.6 over xccute_contract 0.1.2: the `custodian` program a `CompositeShell`, one `SimpleSubCommand` leaf each, each naming its exit statuses (0 done, 1 findings, 2 refused): src/surface.rs. there is no hand parser and no clap: `surface::read` takes the words through the leaf's own fields and refuses a word no field takes; the line is then what runs, what is previewed and what the receipt keeps.
@@ -59,5 +68,5 @@ an agent should read a repository before it works on it, ask what it must ask be
 
 ### proof
 
-- `cargo test`: 35 tests pass on stable 1.97.1, against custodian_kit c9e59be: 17 unit tests, tests/cli.rs (16, every subcommand on the fixture project in tests/fixtures/ws, through the built program), tests/runtime.rs (2).
+- `cargo test`: 36 tests pass, 1 ignored (the kit's folder-of-specs refusal), on stable 1.97.1 against custodian_kit a1ecffd and task_history f0677e4: 15 unit tests, tests/cli.rs (19 of 20, every subcommand on the fixture project in tests/fixtures/ws, through the built program; the writing tests need code-passenger on PATH), tests/runtime.rs (2).
 - `cargo clippy --all-targets`: no warnings.

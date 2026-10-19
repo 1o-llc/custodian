@@ -48,15 +48,22 @@ Built and tested in this version:
 - the two modes: inside an initialized `.custodian/` folder every run is journaled; elsewhere it is free mode,
   printed, nothing stored
 - the same-search check before a search is spent, and the diff of two readings of one spec
-- jobs as folders: queued, running, done; a folder of specs, or a template (`triage`, `test`, `check`); the
-  closing receipt; bundles of jobs and their import elsewhere
-- the runner: a job's independent steps at once, the queue by job kind, a checkpoint after each stage so an
-  interrupted job resumes where it stopped
+- jobs as folders: queued, running, done; a folder of specs, or a template (`triage`, `features`), run by
+  custodian_kit's job code; the closing receipt; each job a task history in James Hunt's typed 1o records
+  (task, intent, a solution per step, changes, verifications, result), a job run again its next revision; bundles
+  of jobs and their import elsewhere
+- counts: files, lines, code, comments and blanks by tokei, the tests' share by klepto; two counts compared; a
+  counting job's lines touched
+- the queue: queued job folders scheduled by kind, a checkpoint between a job's start and its close so an
+  interrupted job resumes at its close
 - `custodian test`: the tests a change reaches (or every package), each cargo line with its receipt and times
 - the maintenance loop: `check` through maintenance's own lines, `annotate` as a plan, `features` as
   code_passenger's gating spec
 - a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs
 - `self install` through the installation crate, and a pre-edit hook script (not enabled)
+
+Not working yet, in custodian_kit a1ecffd: a folder-of-specs job is refused at its first step (the kit reads the
+`counts.json` it wrote into the folder as a spec). Template jobs run.
 
 Planned, not built (from the specification): bounded and unbounded modes; structured change-impact and cost
 analysis; SimpleImpl transformation contracts; specification files as the central contract for transformations;
@@ -89,15 +96,16 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 
 | subcommand | what it does |
 |---|---|
-| `init [--macros]` | makes `.custodian/` (plain). `--macros` is refused for now: code_passenger has no line that adds a dependency, and custodian never edits a manifest |
+| `init [--macros]` | makes `.custodian/` (plain); `--macros` adds `maintenance` to every crate through `code-passenger dep add` |
 | `agent init [--macros]` | the same, with `state/jobs/{queued,running,done}` and the job templates in `config/jobs/` |
 | `run [SPEC\|ROUTE] [--kind K] [--job ID] [--again]` | one spec (a file, or a queued or done spec's name), a search on the line, or the queue |
 | `list` | the inventory: specs, the latest reading of each, jobs, test lines, installs, the folder's parts |
 | `diff SPEC [--from N] [--to N]` | what moved between two readings of one spec |
-| `job start\|close\|brief\|import\|list [NAME\|ID\|BUNDLE]` | jobs as folders; the closing receipt; the facts page; a bundled job imported under a new id |
+| `job start\|close\|brief\|import\|list [NAME\|ID\|BUNDLE] [--intent TEXT]` | jobs as folders, run by custodian_kit; the closing receipt and the task history; the brief (lines touched, revision); a bundled job imported under a new id |
+| `count [ROUTE] [--by crate\|language] [--tests]`, `count report A B`, `count history [ROUTE]` | a count as a reading; two counts compared (by receipt number, job, `job:open`/`job:close`, commit or date); every count of a route |
 | `test [report] [--affected\|--all] [--observe failed\|progress\|all] [--ref REF]` | the affected tests (or all), a receipt per cargo line; `report`: slowest lines, flakiest tests, maintenance's timed report |
 | `check sensitivity\|mechanism\|boundary\|supersedes\|reads_env\|golden\|all` | maintenance's check line, its JSON kept |
-| `annotate [--from CHECK_JSON] [--apply]` | the plan of maintenance attributes the receipts call for; `--apply` is refused until code_passenger has a line that places attributes |
+| `annotate [--from CHECK_JSON] [--apply]` | the plan of maintenance attributes the receipts call for; `--apply` places each through `code-passenger attr place` |
 | `features [--apply]` | primary and feature-eligible dependencies; code_passenger's `klepto.toml` spec; `--apply` runs `code-passenger gate --write` |
 | `diagnostics list [CRATE] \| where CODE \| from LOGFILE` | every liaise code table: meanings, declarations, the sites raising them |
 | `triage CODE\|@LOGFILE` | the triage job: the code's sites, what they reach, the tests that prove a fix, the marks there |
@@ -123,7 +131,9 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 .custodian/runtime/serve.sock             the resident's socket
 ```
 
-Each part is declared once in `src/layout.rs` (pathgen-macros' `ArtifactContract`, placed by pathgen's dev policy).
+The parts are custodian_kit's (`store::named`); the few only the command line keeps are declared in
+`src/layout.rs` (pathgen-macros' `ArtifactContract`). A job's task history is under
+`.custodian/data/history/<task>/<revision>/`.
 
 ## The receipt and the journal
 
@@ -192,6 +202,6 @@ Hunt's.
 ## Building
 
 custodian depends by path on [custodian_kit](../custodian_kit) and
-[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 35 tests:
+[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 36 tests (one more is ignored until the kit's folder-of-specs refusal is fixed):
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
 `tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.
