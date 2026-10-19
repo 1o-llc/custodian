@@ -91,9 +91,17 @@ fn passenger_of(folder: &Path, at: &str) -> Option<String> {
     v.get(at)?.as_str().map(str::to_owned)
 }
 
-/// A passenger checkpoint at `at`, kept in the folder's passenger file.
+/// A passenger checkpoint at `at`, kept in the folder's passenger file. A checkpoint code_passenger cannot take (a
+/// file it cannot parse) is said, with its receipt, and does not stop the job: the job's own records stand without it.
 fn checkpoint(ctx: &mut Ctx, job: &str, folder: &Path, at: &str, ran: &mut Ran) -> Result<()> {
-    let Some(id) = crate::maint::passenger_checkpoint(ctx, job, &format!("custodian job {job} {at}"), ran)? else { return Ok(()) };
+    let id = match crate::maint::passenger_checkpoint(ctx, job, &format!("custodian job {job} {at}"), ran) {
+        Ok(Some(id)) => id,
+        Ok(None) => return Ok(()),
+        Err(e) => {
+            ran.say(format!("no passenger checkpoint at {at}: {}", e.message.lines().next().unwrap_or_default()));
+            return Ok(());
+        }
+    };
     let file = folder.join(PASSENGER_FILE);
     let mut v: serde_json::Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
     v[at] = serde_json::Value::String(id);
