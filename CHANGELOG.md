@@ -1,5 +1,59 @@
 # Changelog
 
+## 0.3.1 (2026-10-19)
+
+One rule, one place, on custodian_kit 0.3.1 and differences_kit 0.1.1. The
+`.custodian` folder is declared once, in custodian_kit. A spec's readings
+come from one source, the receipts. A plan can be made in a named job, and
+it targets the crates its intent names. Nothing is removed from the API.
+Every link is pinned to 1bc55b5; the earlier lines are pinned to 02b908a
+(0.3.0).
+
+- `layout` declares no part of its own. `FOLDER` is custodian_kit's
+  ([src/layout.rs#L12](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/layout.rs#L12)). Every part type hands back the kit's
+  descriptor, and its `ArtifactContract` is read from that descriptor
+  ([src/layout.rs#L75](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/layout.rs#L75)). The reading record, the check run and the log
+  were declared here before ([src/layout.rs#L92](https://github.com/1o-llc/custodian/blob/02b908ad1e58b721fbc4b0617b53d568b6384544/src/layout.rs#L92)); they are the kit's
+  now, with the same schema, route and place. New part types name the kit's
+  other parts: `WriterLock`, `ChangeSpec`, `PreflightRecord`,
+  `TransformRecord`, `Linkage`, `IntentPlan` and `Tree`. The change specs'
+  folder was a joined path before; it is `ChangeSpec`'s now.
+  `custodian list` prints the kit's `named::ALL` ([src/layout.rs#L155](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/layout.rs#L155)).
+- `custodian diff` picks its two readings from the receipts. It uses
+  differences_kit's `reading_pair`, the same pair `differences readings`
+  compares ([src/readings.rs#L221](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/readings.rs#L221)). Before, it read the readings index
+  ([src/readings.rs#L218](https://github.com/1o-llc/custodian/blob/02b908ad1e58b721fbc4b0617b53d568b6384544/src/readings.rs#L218)). The index is a cache. It is rebuilt from the
+  receipts by custodian_kit's `receipts::reading_of`
+  ([src/journal.rs#L529](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/journal.rs#L529)); before, this crate kept its own copy of that
+  rule ([src/journal.rs#L535](https://github.com/1o-llc/custodian/blob/02b908ad1e58b721fbc4b0617b53d568b6384544/src/journal.rs#L535)).
+- `plan make`, `plan approve` and `plan show` take `--job`
+  ([src/changes.rs#L147](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/changes.rs#L147), [src/changes.rs#L172](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/changes.rs#L172),
+  [src/changes.rs#L192](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/changes.rs#L192)). A plan made in a job has its impact readings
+  in the job, and its receipt carries the job. Before, `plan make --job` was
+  refused (`CUST1001`) and a plan used the running job only
+  ([src/changes.rs#L139](https://github.com/1o-llc/custodian/blob/02b908ad1e58b721fbc4b0617b53d568b6384544/src/changes.rs#L139)). A job that is not in the journal is refused
+  (`CUST1401`, [src/changes.rs#L33](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/changes.rs#L33)).
+- From custodian_kit 0.3.1: a plan targets the crates, files and
+  declarations its intent names before it matches words. A `reading:<spec>`
+  verification is satisfied by the job's first reading of a spec never read
+  before, or by a reading that differs from the latest one before the job
+  opened.
+
+Proof: the rustdoc JSON of 0.3.0 compared with this release: 2,520 public
+items before, 2,589 after. `layout::FOLDER` is now a re-export of the same
+value; nothing is removed. `cargo test` has 60 tests, the 56 of 0.3.0 and
+four new: `every_path_the_command_line_names_is_the_kits`
+([src/layout.rs#L200](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/layout.rs#L200)),
+`custodian_diff_and_differences_readings_pick_the_same_pair_from_the_receipts`
+([tests/readings_pair.rs#L23](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/tests/readings_pair.rs#L23)),
+`a_plan_belongs_to_its_job_and_a_first_reading_verifies_it`
+([tests/modes.rs#L104](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/tests/modes.rs#L104)), and
+`on_a_projects_committed_folder_both_lines_pick_the_same_pair`
+([tests/readings_pair.rs#L63](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/tests/readings_pair.rs#L63)). The last one runs only when
+`CUSTODIAN_PAIR_DATA` names a copy of a project's folder. On a copy of the
+kit's committed `.custodian` (123 receipts), it compared 7 specs, and both
+lines picked the same pair for each.
+
 ## 0.3.0 (2026-10-19)
 
 custodian on custodian_kit 0.3.0 and the history crates it split into. The
