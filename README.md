@@ -134,10 +134,12 @@ stable_digest of the spec and its option word), `index_key` (the code's index ke
 ran), `exit_code`, `accepted`, `disposition`, `reason` (the status's word), `outputs`, `job`, `reused_seq`,
 `millis`.
 
-The journal's tables (`src/journal.rs`, `SCHEMA`): `receipts`; `readings` (seq, name, kind, target, spec_digest,
-index_key, word, stamp, page, record, reading_digest, job), indexed on (spec_digest, index_key) for the
-same-search check; `jobs`; `events` (job states, steps, test progress); `test_runs` and `test_results`;
-`installs`; `checkpoints` (the job queue's).
+The journal is custodian_kit's file, extended. The kit's tables (`custodian_kit::store::JOURNAL_SCHEMA`): `runs`
+(one row per receipt, the fields above), `jobs` (custodian adds `origin`, `opened_seq`, `closed_seq`), `tests`
+(one row per test outcome). custodian's (`src/journal.rs`, `SCHEMA`): `readings` (seq, name, kind, target,
+spec_digest, index_key, word, stamp, page, record, reading_digest, job), indexed on (spec_digest, index_key) for
+the same-search check; `events` (job states, steps, test progress); `test_runs` (one row per cargo line: counts,
+exit status, wall time); `installs`; `checkpoints` (the job queue's).
 
 ## The socket
 
@@ -190,6 +192,6 @@ Hunt's.
 ## Building
 
 custodian depends by path on [custodian_kit](../custodian_kit) and
-[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 34 tests:
+[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 35 tests:
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
 `tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.

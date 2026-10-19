@@ -1,6 +1,7 @@
-//! The journal: one SQLite file, `.custodian/state/journal.sqlite`, holding a receipt per run, the readings index
-//! the same-search check reads, the jobs and their events, the test results, the install receipts and the job
-//! queue's checkpoints. Its sequence is uh-tom-mick's checked counter, brought up to the file's last receipt inside
+//! The journal: one SQLite file, `.custodian/state/journal.sqlite`: custodian_kit's tables (a receipt per run in
+//! `runs`, the `jobs`, the `tests` outcomes) and the ones custodian adds: the readings index the same-search check
+//! reads, the events (job states, steps, test progress), the test lines, the install receipts and the job queue's
+//! checkpoints. Its sequence is uh-tom-mick's checked counter, brought up to the file's last receipt inside
 //! the writing transaction (`BEGIN IMMEDIATE`), so two processes never take one number.
 //!
 //! The tables are declared once, in [`SCHEMA`]; the inventory (`custodian list`) is rendered from them.
@@ -13,34 +14,12 @@ use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
 use uh_tom_mick::AtomicCounter;
 
-/// The journal's tables.
+/// The tables custodian adds to custodian_kit's journal (`custodian_kit::store::JOURNAL_SCHEMA`: `runs`, the
+/// receipts; `jobs`; `tests`, one row per test outcome), which is made first, so the kit and the command line read
+/// one file. A `jobs` table made by the kit gains the three columns custodian keeps ([`JOB_COLUMNS`]).
 pub const SCHEMA: &str = "
-CREATE TABLE IF NOT EXISTS receipts (
-  seq INTEGER PRIMARY KEY,
-  utc TEXT NOT NULL,
-  command TEXT NOT NULL,
-  name TEXT NOT NULL,
-  spec TEXT,
-  spec_digest TEXT,
-  index_key TEXT,
-  code_digest TEXT,
-  job TEXT,
-  reused_seq INTEGER,
-  line TEXT NOT NULL,
-  exit_code INTEGER,
-  accepted INTEGER NOT NULL,
-  disposition TEXT NOT NULL,
-  reason TEXT NOT NULL,
-  plan_id TEXT NOT NULL,
-  plan_digest TEXT NOT NULL,
-  operation_digest TEXT NOT NULL,
-  receipt_digest TEXT NOT NULL,
-  outputs TEXT NOT NULL,
-  millis INTEGER NOT NULL,
-  file TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS readings (
-  seq INTEGER PRIMARY KEY REFERENCES receipts(seq),
+  seq INTEGER PRIMARY KEY,
   name TEXT NOT NULL,
   kind TEXT NOT NULL,
   target TEXT NOT NULL,
@@ -54,18 +33,6 @@ CREATE TABLE IF NOT EXISTS readings (
   job TEXT
 );
 CREATE INDEX IF NOT EXISTS readings_by_key ON readings (spec_digest, index_key);
-CREATE TABLE IF NOT EXISTS jobs (
-  id TEXT PRIMARY KEY,
-  name TEXT NOT NULL,
-  kind TEXT NOT NULL,
-  state TEXT NOT NULL,
-  folder TEXT NOT NULL,
-  origin TEXT,
-  opened_seq INTEGER,
-  closed_seq INTEGER,
-  opened_utc TEXT NOT NULL,
-  closed_utc TEXT
-);
 CREATE TABLE IF NOT EXISTS events (
   n INTEGER PRIMARY KEY AUTOINCREMENT,
   utc TEXT NOT NULL,
@@ -77,7 +44,7 @@ CREATE TABLE IF NOT EXISTS events (
   seq INTEGER
 );
 CREATE TABLE IF NOT EXISTS test_runs (
-  seq INTEGER PRIMARY KEY REFERENCES receipts(seq),
+  seq INTEGER PRIMARY KEY,
   job TEXT,
   package TEXT NOT NULL,
   target TEXT NOT NULL,
@@ -88,15 +55,8 @@ CREATE TABLE IF NOT EXISTS test_runs (
   failed INTEGER NOT NULL,
   ignored INTEGER NOT NULL
 );
-CREATE TABLE IF NOT EXISTS test_results (
-  n INTEGER PRIMARY KEY AUTOINCREMENT,
-  seq INTEGER NOT NULL REFERENCES receipts(seq),
-  package TEXT NOT NULL,
-  test TEXT NOT NULL,
-  outcome TEXT NOT NULL
-);
 CREATE TABLE IF NOT EXISTS installs (
-  seq INTEGER PRIMARY KEY REFERENCES receipts(seq),
+  seq INTEGER PRIMARY KEY,
   action TEXT NOT NULL,
   bin TEXT NOT NULL,
   destination TEXT NOT NULL,
@@ -111,6 +71,9 @@ CREATE TABLE IF NOT EXISTS checkpoints (
   utc TEXT NOT NULL
 );
 ";
+
+/// The columns custodian keeps on a job besides the kit's.
+pub const JOB_COLUMNS: &[(&str, &str)] = &[("origin", "TEXT"), ("opened_seq", "INTEGER"), ("closed_seq", "INTEGER")];
 
 /// One reading as the index keeps it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -206,7 +169,7 @@ fn receipt_of(r: &Row<'_>) -> rusqlite::Result<Receipt> {
         command: r.get("command")?,
         name: r.get("name")?,
         spec: r.get("spec")?,
-        spec_hash: r.get("spec_digest")?,
+        spec_hash: r.get("spec_hash")?,
         code_digest: r.get("code_digest")?,
         index_key: r.get("index_key")?,
         plan_id: r.get("plan_id")?,
@@ -252,7 +215,7 @@ fn job_of(r: &Row<'_>) -> rusqlite::Result<JobRow> {
         origin: r.get("origin")?,
         opened_seq: r.get("opened_seq")?,
         closed_seq: r.get("closed_seq")?,
-        opened_utc: r.get("opened_utc")?,
+        opened_utc: r.get::<_, Option<String>>("opened_utc")?.unwrap_or_default(),
         closed_utc: r.get("closed_utc")?,
     })
 }
@@ -284,8 +247,19 @@ impl Journal {
         }
         let conn = Connection::open(path).map_err(|e| jerr(format!("{}: {e}", path.display())))?;
         conn.busy_timeout(std::time::Duration::from_secs(10)).map_err(jerr)?;
+        conn.execute_batch(custodian_kit::store::JOURNAL_SCHEMA).map_err(jerr)?;
         conn.execute_batch(SCHEMA).map_err(jerr)?;
-        let last: i64 = conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM receipts", [], |r| r.get(0)).map_err(jerr)?;
+        let have: Vec<String> = {
+            let mut st = conn.prepare("SELECT name FROM pragma_table_info('jobs')").map_err(jerr)?;
+            let names = st.query_map([], |r| r.get::<_, String>(0)).map_err(jerr)?;
+            names.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)?
+        };
+        for (col, ty) in JOB_COLUMNS {
+            if !have.iter().any(|h| h == col) {
+                conn.execute_batch(&format!("ALTER TABLE jobs ADD COLUMN {col} {ty}")).map_err(jerr)?;
+            }
+        }
+        let last: i64 = conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |r| r.get(0)).map_err(jerr)?;
         Ok(Journal { path: path.to_path_buf(), conn, seq: AtomicCounter::new(last.max(0) as u64) })
     }
 
@@ -293,7 +267,7 @@ impl Journal {
     /// layout names for that number, and inserts the row. Returns the number and the file.
     pub fn keep(&mut self, r: &mut Receipt, file_for: impl Fn(i64) -> Result<PathBuf>) -> Result<(i64, PathBuf)> {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(jerr)?;
-        let last: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM receipts", [], |row| row.get(0)).map_err(jerr)?;
+        let last: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |row| row.get(0)).map_err(jerr)?;
         let have = self.seq.load();
         if (last as u64) > have {
             self.seq.add(last as u64 - have).map_err(jerr)?;
@@ -303,8 +277,8 @@ impl Journal {
         let file = file_for(n)?;
         write_whole(&file, serde_json::to_string_pretty(r).map_err(jerr)?.as_bytes())?;
         tx.execute(
-            "INSERT INTO receipts (seq, utc, command, name, spec, spec_digest, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis, file)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+            "INSERT INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
             params![
                 n,
                 r.utc,
@@ -327,7 +301,6 @@ impl Journal {
                 r.receipt_digest,
                 serde_json::to_string(&r.outputs).map_err(jerr)?,
                 r.millis,
-                file.to_string_lossy(),
             ],
         )
         .map_err(jerr)?;
@@ -336,17 +309,17 @@ impl Journal {
     }
 
     pub fn receipt(&self, seq: i64) -> Result<Option<Receipt>> {
-        self.conn.query_row("SELECT * FROM receipts WHERE seq = ?1", [seq], receipt_of).optional().map_err(jerr)
+        self.conn.query_row("SELECT * FROM runs WHERE seq = ?1", [seq], receipt_of).optional().map_err(jerr)
     }
 
     /// Every receipt, oldest first.
     pub fn receipts(&self) -> Result<Vec<Receipt>> {
-        self.rows("SELECT * FROM receipts ORDER BY seq", [], receipt_of)
+        self.rows("SELECT * FROM runs ORDER BY seq", [], receipt_of)
     }
 
     /// The receipts of a job, oldest first.
     pub fn receipts_of_job(&self, job: &str) -> Result<Vec<Receipt>> {
-        self.rows("SELECT * FROM receipts WHERE job = ?1 ORDER BY seq", [job], receipt_of)
+        self.rows("SELECT * FROM runs WHERE job = ?1 ORDER BY seq", [job], receipt_of)
     }
 
     fn rows<T, P: rusqlite::Params>(&self, sql: &str, p: P, f: fn(&Row<'_>) -> rusqlite::Result<T>) -> Result<Vec<T>> {
@@ -446,7 +419,7 @@ impl Journal {
             )
             .map_err(jerr)?;
         for (test, outcome) in results {
-            self.conn.execute("INSERT INTO test_results (seq, package, test, outcome) VALUES (?1, ?2, ?3, ?4)", params![t.seq, t.package, test, outcome]).map_err(jerr)?;
+            self.conn.execute("INSERT INTO tests (seq, package, target, test, outcome, millis) VALUES (?1, ?2, ?3, ?4, ?5, NULL)", params![t.seq, t.package, t.target, test, outcome]).map_err(jerr)?;
         }
         Ok(())
     }
@@ -463,7 +436,7 @@ impl Journal {
     pub fn test_outcomes(&self) -> Result<Vec<(String, String, i64, i64)>> {
         let mut st = self
             .conn
-            .prepare("SELECT package, test, COUNT(*), SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) FROM test_results GROUP BY package, test ORDER BY 4 DESC, 3 DESC, 1, 2")
+            .prepare("SELECT package, test, COUNT(*), SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) FROM tests GROUP BY package, test ORDER BY 4 DESC, 3 DESC, 1, 2")
             .map_err(jerr)?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(jerr)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)
@@ -511,7 +484,7 @@ impl Journal {
     pub fn step_reading(&self, job: &str, name: &str) -> Result<Option<ReadingRow>> {
         let last: Option<(i64, Option<i64>)> = self
             .conn
-            .query_row("SELECT seq, reused_seq FROM receipts WHERE job = ?1 AND name = ?2 AND command = 'run' ORDER BY seq DESC LIMIT 1", params![job, name], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT seq, reused_seq FROM runs WHERE job = ?1 AND name = ?2 AND command = 'run' ORDER BY seq DESC LIMIT 1", params![job, name], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()
             .map_err(jerr)?;
         match last {
@@ -531,7 +504,7 @@ impl Journal {
 
     /// How many receipts the journal holds.
     pub fn count(&self) -> Result<i64> {
-        self.conn.query_row("SELECT COUNT(*) FROM receipts", [], |r| r.get(0)).map_err(jerr)
+        self.conn.query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0)).map_err(jerr)
     }
 }
 
@@ -581,5 +554,23 @@ mod tests {
         assert_eq!((back.seq, back.name.as_str()), (3, "three"));
         assert_eq!(a.receipt(2).unwrap().unwrap().name, "two");
         assert_eq!(b.receipts().unwrap().len(), 3);
+    }
+
+    #[test]
+    fn a_journal_custodian_kit_made_is_extended_not_replaced() {
+        let dir = std::env::temp_dir().join(format!("custodian-kit-journal-{}", std::process::id()));
+        std::fs::create_dir_all(&dir).unwrap();
+        let file = dir.join("journal.sqlite");
+        let kit = Connection::open(&file).unwrap();
+        kit.execute_batch(custodian_kit::store::JOURNAL_SCHEMA).unwrap();
+        drop(kit);
+        let mut j = Journal::open(&file).unwrap();
+        let job = JobRow { id: "j-1".into(), name: "n".into(), kind: "specs".into(), state: "running".into(), folder: "f".into(), origin: Some("sha256:x".into()), opened_seq: None, closed_seq: None, opened_utc: now_utc(), closed_utc: None };
+        j.put_job(&job).unwrap();
+        assert_eq!(j.job("j-1").unwrap().unwrap().origin.as_deref(), Some("sha256:x"));
+        let (n, _) = j.keep(&mut receipt("one"), |n| Ok(dir.join(format!("{n}.json")))).unwrap();
+        assert_eq!(n, 1);
+        let kit_rows: i64 = Connection::open(&file).unwrap().query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0)).unwrap();
+        assert_eq!(kit_rows, 1, "the receipt is in the kit's runs table");
     }
 }

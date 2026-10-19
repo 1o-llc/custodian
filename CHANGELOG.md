@@ -23,7 +23,7 @@ an agent should read a repository before it works on it, ask what it must ask be
 
 ### the journal and the folder
 
-- one SQLite file, `.custodian/state/journal.sqlite`: receipts, the readings index, jobs, events, test runs and results, install receipts, the queue's checkpoints, declared once in `journal::SCHEMA`: src/journal.rs. the sequence is uh-tom-mick's `AtomicCounter`, brought up to the file's last receipt inside the writing transaction (`BEGIN IMMEDIATE`), so two processes never take one number; `tests::two_journals_on_one_file_never_take_one_number`.
+- one SQLite file, `.custodian/state/journal.sqlite`, custodian_kit's journal extended: the kit's `runs` (the receipts), `jobs` and `tests` made by its `JOURNAL_SCHEMA` first, then custodian's readings index, events, test lines, install receipts and the queue's checkpoints (`journal::SCHEMA`); a `jobs` table the kit made gains three columns, nothing is dropped: src/journal.rs. `tests::a_journal_custodian_kit_made_is_extended_not_replaced`. the sequence is uh-tom-mick's `AtomicCounter`, brought up to the file's last receipt inside the writing transaction (`BEGIN IMMEDIATE`), so two processes never take one number; `tests::two_journals_on_one_file_never_take_one_number`.
 - the `.custodian/` parts are pathgen-macros `ArtifactContract`s placed by one descriptor each and resolved through pathgen's dev policy: src/layout.rs. the templates are custodian_kit's, including the 1o job file (`v1.job.1o.job`) and paths table (`v1.paths.1o.paths`); `tests::the_kit_names_the_same_places` fails the moment the two drift.
 - the two modes: walking up for `.custodian/`, a run is journaled; with none it is free mode and says so: src/mode.rs.
 
@@ -59,5 +59,5 @@ an agent should read a repository before it works on it, ask what it must ask be
 
 ### proof
 
-- `cargo test`: 34 tests pass on stable 1.97.1: 16 unit tests, tests/cli.rs (16, every subcommand on the fixture project in tests/fixtures/ws, through the built program), tests/runtime.rs (2).
+- `cargo test`: 35 tests pass on stable 1.97.1, against custodian_kit c9e59be: 17 unit tests, tests/cli.rs (16, every subcommand on the fixture project in tests/fixtures/ws, through the built program), tests/runtime.rs (2).
 - `cargo clippy --all-targets`: no warnings.
