@@ -268,6 +268,12 @@ impl Journal {
     pub fn keep(&mut self, r: &mut Receipt, file_for: impl Fn(i64) -> Result<PathBuf>) -> Result<(i64, PathBuf)> {
         let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(jerr)?;
         let last: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |row| row.get(0)).map_err(jerr)?;
+        // a receipt file is never written over: the number is above every receipt file already there too
+        let dir = file_for(1)?.parent().map(Path::to_path_buf).unwrap_or_default();
+        let on_disk = std::fs::read_dir(&dir)
+            .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| e.path().file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<i64>().ok())).max().unwrap_or(0))
+            .unwrap_or(0);
+        let last = last.max(on_disk);
         let have = self.seq.load();
         if (last as u64) > have {
             self.seq.add(last as u64 - have).map_err(jerr)?;
