@@ -231,7 +231,7 @@ pub fn diff(ctx: &mut Ctx, spec: &str, from: Option<i64>, to: Option<i64>) -> Re
     // two counts: what grew, file by file (custodian_kit's count compare); any other reading: rows and counts
     if let (Some(x), Some(y)) = (&a.count, &b.count) {
         let d = custodian_kit::reading::count::compare_counts(x, y);
-        ran.print(crate::counting::diff_table(&d, before.seq, after.seq));
+        ran.print(tree_history::count::diff_table(&d, before.seq, after.seq));
         ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, d.line("grew")));
     } else {
         let d = custodian_kit::diff::compare(&a, &b);

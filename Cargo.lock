@@ -315,6 +315,21 @@ source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "f079e83a288787bcd14a6aea84cee5c87a67c5a3e660c30f557a3d24761b3527"
 
 [[package]]
+name = "change_history"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "f55aebd7b46387ae71eaefac52b0f3742e564beba71f30eafeecffde9348e2da"
+dependencies = [
+ "liaise",
+ "receipt_history",
+ "revision_history",
+ "serde",
+ "serde_json",
+ "task_history",
+ "tree_history",
+]
+
+[[package]]
 name = "chrono"
 version = "0.4.45"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -570,12 +585,13 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "abut",
  "big-bad-bool",
  "chrono",
  "custodian_kit",
+ "differences_kit",
  "flaga_solver",
  "installation",
  "liaise_proc_macro",
@@ -584,6 +600,7 @@ dependencies = [
  "ob-serve-a-bowl",
  "pathgen",
  "pathgen-macros",
+ "receipt_history",
  "rmcp",
  "rusqlite",
  "serde",
@@ -593,6 +610,7 @@ dependencies = [
  "task_history",
  "tokio",
  "toml 0.8.23",
+ "tree_history",
  "uh-tom-mick",
  "waker_protocol",
  "waker_tables",
@@ -605,13 +623,15 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.2.0"
+version = "0.3.0"
 dependencies = [
  "big-bad-bool",
  "bundles",
+ "change_history",
  "chrono",
  "classified",
  "core-1o",
+ "diff_history",
  "flaga_solver",
  "globset",
  "klepto",
@@ -619,6 +639,8 @@ dependencies = [
  "maintenance",
  "pathgen",
  "quote",
+ "receipt_history",
+ "revision_history",
  "rusqlite",
  "scope",
  "serde",
@@ -632,6 +654,7 @@ dependencies = [
  "tokei",
  "toml 0.8.23",
  "toml_edit",
+ "tree_history",
  "uh-tom-mick",
  "walkdir",
  "xccute_commands",
@@ -730,6 +753,36 @@ name = "deunicode"
 version = "1.6.2"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "abd57806937c9cc163efc8ea3910e00a62e2aeb0b8119f1793a978088f8f6b04"
+
+[[package]]
+name = "diff_history"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "bd326f17b5a87204b4f607630c0c7af6b2d97c3986172650a7eb8517c986a6ef"
+dependencies = [
+ "liaise",
+ "serde",
+ "serde_json",
+]
+
+[[package]]
+name = "differences_kit"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "b4f97f0a6d207f6c121b6e49c1e97f91731438af286c30d34e67c02fc13a0742"
+dependencies = [
+ "big-bad-bool",
+ "change_history",
+ "diff_history",
+ "liaise",
+ "pathgen",
+ "receipt_history",
+ "revision_history",
+ "serde",
+ "serde_json",
+ "task_history",
+ "tree_history",
+]
 
 [[package]]
 name = "digest"
@@ -2082,6 +2135,20 @@ dependencies = [
 ]
 
 [[package]]
+name = "receipt_history"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "612888fdb1c7d39c9896a22c5ca90945425615e590498217fa4d72548d51c56c"
+dependencies = [
+ "liaise",
+ "rusqlite",
+ "serde",
+ "serde_json",
+ "stable_digest",
+ "uh-tom-mick",
+]
+
+[[package]]
 name = "redox_syscall"
 version = "0.5.18"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2148,6 +2215,18 @@ name = "regex-syntax"
 version = "0.8.11"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "d6f6ff9a378485b298a5286656da665ba74413d36db0979633275d2e708145d4"
+
+[[package]]
+name = "revision_history"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "2465357f8fcfc3580c932451b883ebe4c1800c20d6b2f0036a9b9f749e97a248"
+dependencies = [
+ "liaise",
+ "receipt_history",
+ "serde",
+ "task_history",
+]
 
 [[package]]
 name = "rmcp"
@@ -3146,6 +3225,25 @@ dependencies = [
  "tracing",
  "tracing-core",
  "tracing-log",
+]
+
+[[package]]
+name = "tree_history"
+version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "e5390ed09d8a6aa6e1997f60025360ca11fa824613d6809e53fac514c56e46fe"
+dependencies = [
+ "big-bad-bool",
+ "chrono",
+ "flaga_solver",
+ "liaise",
+ "receipt_history",
+ "serde",
+ "serde_json",
+ "simple_impl_derive",
+ "xccute",
+ "xccute_contract",
+ "xccute_runtime",
 ]
 
 [[package]]

@@ -205,8 +205,8 @@ The parts are custodian_kit's (`store::named`); the few only the command line ke
 
 ## The receipt and the journal
 
-A receipt is custodian_kit's `Receipt` (`custodian.receipt.v1`): `seq` (the journal's number, from
-uh-tom-mick's checked counter inside the writing transaction), `utc`, `command` (in the kit's words: `reading`
+A receipt is receipt_history's `Receipt` (`custodian.receipt.v1`, re-exported by custodian_kit): `seq` (the
+journal's number, from uh-tom-mick's checked counter inside the writing transaction), `utc`, `command` (in the kit's words: `reading`
 for a run that answered a spec, read or reused; `test` for a cargo test line; `git`, `gate`; else the subcommand
 or the program line's id: `src/facade.rs` `command_word`), `name`, `spec`, `spec_hash` (the
 stable_digest of the spec and its option word), `index_key` (the code's index key), `code_digest`, `plan_id`,
@@ -214,12 +214,20 @@ stable_digest of the spec and its option word), `index_key` (the code's index ke
 ran), `exit_code`, `accepted`, `disposition`, `reason` (the status's word), `outputs`, `job`, `reused_seq`,
 `millis`.
 
-The journal is custodian_kit's file, extended. The kit's tables (`custodian_kit::store::JOURNAL_SCHEMA`): `runs`
-(one row per receipt, the fields above), `jobs` (custodian adds `origin`, `opened_seq`, `closed_seq`), `tests`
-(one row per test outcome). custodian's (`src/journal.rs`, `SCHEMA`): `readings` (seq, name, kind, target,
+The journal is receipt_history's file, extended. Its tables (`receipt_history::JOURNAL_SCHEMA`, which custodian_kit
+re-exports): `runs` (one row per receipt, the fields above), `jobs` (custodian adds `origin`, `opened_seq`,
+`closed_seq`), `tests` (one row per test outcome). Keeping a receipt (the number, the file, the row, in one
+writing transaction) and rebuilding the `runs` from the receipt files are receipt_history's; custodian indexes each
+rebuilt reading in the same transaction. custodian's (`src/journal.rs`, `SCHEMA`): `readings` (seq, name, kind, target,
 spec_digest, index_key, word, stamp, page, record, reading_digest, job), indexed on (spec_digest, index_key) for
 the same-search check; `events` (job states, steps, test progress); `test_runs` (one row per cargo line: counts,
 exit status, wall time); `installs`; `checkpoints` (the job queue's).
+
+The counts over time are tree_history's (what a count is, two compared, a count named by its receipt number, job,
+commit or date, the tables); `count history` answers through differences_kit, the library the
+[differences](https://crates.io/crates/differences) command line is. `differences` shows every kind of history the
+folder keeps side by side: the tree at two points, two counts, the receipts since a point, a task's revisions,
+the lines jobs touched, two readings of one spec.
 
 ## The socket
 

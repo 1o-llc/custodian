@@ -1,18 +1,17 @@
 //! The journal: one SQLite file, `.custodian/state/journal.sqlite`: custodian_kit's tables (a receipt per run in
 //! `runs`, the `jobs`, the `tests` outcomes) and the ones custodian adds: the readings index the same-search check
 //! reads, the events (job states, steps, test progress), the test lines, the install receipts and the job queue's
-//! checkpoints. Its sequence is uh-tom-mick's checked counter, brought up to the file's last receipt inside
-//! the writing transaction (`BEGIN IMMEDIATE`), so two processes never take one number.
+//! checkpoints. The receipts, their sequence (uh-tom-mick's checked counter, brought up to the file's last receipt
+//! inside the writing transaction, so two processes never take one number), the receipt files and the rebuild of
+//! the `runs` from them are receipt_history's journal; custodian keeps its own tables on that journal's connection.
 //!
-//! The tables are declared once, in [`SCHEMA`]; the inventory (`custodian list`) is rendered from them.
+//! custodian's tables are declared once, in [`SCHEMA`]; the inventory (`custodian list`) is rendered from them.
 
-use crate::codes::{Code, Result};
-use crate::layout::write_whole;
+use crate::codes::{Code, Refusal, Result};
 use custodian_kit::api::Receipt;
 use rusqlite::{params, Connection, OptionalExtension, Row};
 use serde::{Deserialize, Serialize};
 use std::path::{Path, PathBuf};
-use uh_tom_mick::AtomicCounter;
 
 /// The tables custodian adds to custodian_kit's journal (`custodian_kit::store::JOURNAL_SCHEMA`: `runs`, the
 /// receipts; `jobs`; `tests`, one row per test outcome), which is made first, so the kit and the command line read
@@ -142,12 +141,20 @@ pub type InstallRow = (i64, String, String, String, String);
 
 pub struct Journal {
     pub path: PathBuf,
-    conn: Connection,
-    seq: AtomicCounter,
+    /// The receipts: receipt_history's journal, whose connection custodian's tables share.
+    receipts: receipt_history::Journal,
 }
 
 fn jerr(e: impl std::fmt::Display) -> crate::codes::Refusal {
     Code::Journal.refuse(e)
+}
+
+/// receipt_history's refusal as custodian's: the journal's and a write's codes, its detail.
+fn rh(e: receipt_history::Error) -> Refusal {
+    match e.refusal {
+        receipt_history::Refusal::Journal => Code::Journal.refuse(e.detail),
+        receipt_history::Refusal::Write => Code::Write.refuse(e.detail),
+    }
 }
 
 /// Now, UTC, `2026-10-19T07:38:03Z`.
@@ -158,35 +165,6 @@ pub fn now_utc() -> String {
 /// Now as a reading's stamp, `20261019T073803Z`.
 pub fn stamp() -> String {
     chrono::Utc::now().format("%Y%m%dT%H%M%SZ").to_string()
-}
-
-fn receipt_of(r: &Row<'_>) -> rusqlite::Result<Receipt> {
-    let outputs: String = r.get("outputs")?;
-    Ok(Receipt {
-        schema: custodian_kit::api::RECEIPT_SCHEMA.into(),
-        seq: r.get("seq")?,
-        utc: r.get("utc")?,
-        command: r.get("command")?,
-        name: r.get("name")?,
-        spec: r.get("spec")?,
-        spec_hash: r.get("spec_hash")?,
-        code_digest: r.get("code_digest")?,
-        index_key: r.get("index_key")?,
-        plan_id: r.get("plan_id")?,
-        plan_digest: r.get("plan_digest")?,
-        operation_digest: r.get("operation_digest")?,
-        receipt_digest: r.get("receipt_digest")?,
-        line: r.get("line")?,
-        exit_code: r.get("exit_code")?,
-        accepted: r.get::<_, i64>("accepted")? != 0,
-        disposition: r.get("disposition")?,
-        reason: r.get("reason")?,
-        outputs: serde_json::from_str(&outputs).unwrap_or_default(),
-        job: r.get("job")?,
-        reused_seq: r.get("reused_seq")?,
-        millis: r.get("millis")?,
-        runner: r.get("runner")?,
-    })
 }
 
 fn reading_of(r: &Row<'_>) -> rusqlite::Result<ReadingRow> {
@@ -241,102 +219,51 @@ fn test_run_of(r: &Row<'_>) -> rusqlite::Result<TestRun> {
 }
 
 impl Journal {
-    /// The journal at `path`, its tables made if new.
+    /// The journal at `path`, its tables made if new: receipt_history's (`runs`, `jobs`, `tests`), then
+    /// custodian's, and the columns custodian keeps on a job.
     pub fn open(path: &Path) -> Result<Journal> {
-        if let Some(d) = path.parent() {
-            std::fs::create_dir_all(d).map_err(|e| Code::Write.refuse(format!("{}: {e}", d.display())))?;
-        }
-        let conn = Connection::open(path).map_err(|e| jerr(format!("{}: {e}", path.display())))?;
-        conn.busy_timeout(crate::timing::JOURNAL_BUSY).map_err(jerr)?;
-        conn.execute_batch(custodian_kit::store::JOURNAL_SCHEMA).map_err(jerr)?;
+        let receipts = receipt_history::Journal::open(path).map_err(rh)?;
+        let conn = receipts.connection();
         conn.execute_batch(SCHEMA).map_err(jerr)?;
         let have: Vec<String> = {
             let mut st = conn.prepare("SELECT name FROM pragma_table_info('jobs')").map_err(jerr)?;
             let names = st.query_map([], |r| r.get::<_, String>(0)).map_err(jerr)?;
             names.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)?
         };
-        // a journal from before the receipt's runner field gets the column, every older run a line run
-        let has_runner: bool = conn.prepare("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'runner'").and_then(|mut st| st.exists([])).map_err(jerr)?;
-        if !has_runner {
-            conn.execute_batch("ALTER TABLE runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'line'").map_err(jerr)?;
-        }
         for (col, ty) in JOB_COLUMNS {
             if !have.iter().any(|h| h == col) {
                 conn.execute_batch(&format!("ALTER TABLE jobs ADD COLUMN {col} {ty}")).map_err(jerr)?;
             }
         }
-        let last: i64 = conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |r| r.get(0)).map_err(jerr)?;
-        Ok(Journal { path: path.to_path_buf(), conn, seq: AtomicCounter::new(last.max(0) as u64) })
+        Ok(Journal { path: path.to_path_buf(), receipts })
+    }
+
+    fn conn(&self) -> &Connection {
+        self.receipts.connection()
     }
 
     /// Keeps a receipt: takes the next sequence number inside one writing transaction, writes the receipt file the
-    /// layout names for that number, and inserts the row. Returns the number and the file.
+    /// layout names for that number, and inserts the row (receipt_history's keep). Returns the number and the file.
     pub fn keep(&mut self, r: &mut Receipt, file_for: impl Fn(i64) -> Result<PathBuf>) -> Result<(i64, PathBuf)> {
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(jerr)?;
-        let last: i64 = tx.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |row| row.get(0)).map_err(jerr)?;
-        // a receipt file is never written over: the number is above every receipt file already there too
-        let dir = file_for(1)?.parent().map(Path::to_path_buf).unwrap_or_default();
-        let on_disk = std::fs::read_dir(&dir)
-            .map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| e.path().file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<i64>().ok())).max().unwrap_or(0))
-            .unwrap_or(0);
-        let last = last.max(on_disk);
-        let have = self.seq.load();
-        if (last as u64) > have {
-            self.seq.add(last as u64 - have).map_err(jerr)?;
-        }
-        let n = self.seq.increment().map_err(jerr)? as i64;
-        r.seq = n;
-        let file = file_for(n)?;
-        write_whole(&file, serde_json::to_string_pretty(r).map_err(jerr)?.as_bytes())?;
-        tx.execute(
-            "INSERT INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis, runner)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
-            params![
-                n,
-                r.utc,
-                r.command,
-                r.name,
-                r.spec,
-                r.spec_hash,
-                r.index_key,
-                r.code_digest,
-                r.job,
-                r.reused_seq,
-                r.line,
-                r.exit_code,
-                r.accepted as i64,
-                r.disposition,
-                r.reason,
-                r.plan_id,
-                r.plan_digest,
-                r.operation_digest,
-                r.receipt_digest,
-                serde_json::to_string(&r.outputs).map_err(jerr)?,
-                r.millis,
-                r.runner,
-            ],
-        )
-        .map_err(jerr)?;
-        tx.commit().map_err(jerr)?;
-        Ok((n, file))
+        self.receipts.keep(r, |n| file_for(n).map_err(|e| receipt_history::Refusal::Write.refuse(e))).map_err(rh)
     }
 
     pub fn receipt(&self, seq: i64) -> Result<Option<Receipt>> {
-        self.conn.query_row("SELECT * FROM runs WHERE seq = ?1", [seq], receipt_of).optional().map_err(jerr)
+        self.receipts.receipt(seq).map_err(rh)
     }
 
     /// Every receipt, oldest first.
     pub fn receipts(&self) -> Result<Vec<Receipt>> {
-        self.rows("SELECT * FROM runs ORDER BY seq", [], receipt_of)
+        self.receipts.runs().map_err(rh)
     }
 
     /// The receipts of a job, oldest first.
     pub fn receipts_of_job(&self, job: &str) -> Result<Vec<Receipt>> {
-        self.rows("SELECT * FROM runs WHERE job = ?1 ORDER BY seq", [job], receipt_of)
+        self.receipts.runs_of_job(job).map_err(rh)
     }
 
     fn rows<T, P: rusqlite::Params>(&self, sql: &str, p: P, f: fn(&Row<'_>) -> rusqlite::Result<T>) -> Result<Vec<T>> {
-        let mut st = self.conn.prepare(sql).map_err(jerr)?;
+        let mut st = self.conn().prepare(sql).map_err(jerr)?;
         let rows = st.query_map(p, f).map_err(jerr)?;
         rows.collect::<rusqlite::Result<Vec<T>>>().map_err(jerr)
     }
@@ -344,7 +271,7 @@ impl Journal {
     // ---- readings ----
 
     pub fn index_reading(&self, row: &ReadingRow) -> Result<()> {
-        self.conn
+        self.conn()
             .execute(
                 "INSERT INTO readings (seq, name, kind, target, spec_digest, index_key, word, stamp, page, record, reading_digest, job) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
                 params![row.seq, row.name, row.kind, row.target, row.spec_digest, row.index_key, row.word, row.stamp, row.page, row.record, row.reading_digest, row.job],
@@ -357,16 +284,7 @@ impl Journal {
     /// spec's hash and klepto's fingerprint of the code, `custodian_kit::api::SearchKey`) looked up in the runs, as
     /// custodian_kit's own journal looks it up, and the reading the index keeps under that run.
     pub fn same_search(&self, spec_hash: &str, code_digest: &str) -> Result<Option<(ReadingRow, Receipt)>> {
-        let receipt = self
-            .conn
-            .query_row(
-                "SELECT * FROM runs WHERE command = 'reading' AND spec_hash = ?1 AND code_digest = ?2 AND accepted = 1 AND reused_seq IS NULL ORDER BY seq DESC LIMIT 1",
-                params![spec_hash, code_digest],
-                receipt_of,
-            )
-            .optional()
-            .map_err(jerr)?;
-        match receipt {
+        match self.receipts.same_search(spec_hash, code_digest).map_err(rh)? {
             Some(r) => Ok(self.reading(r.seq)?.map(|row| (row, r))),
             None => Ok(None),
         }
@@ -378,7 +296,7 @@ impl Journal {
     }
 
     pub fn reading(&self, seq: i64) -> Result<Option<ReadingRow>> {
-        self.conn.query_row("SELECT * FROM readings WHERE seq = ?1", [seq], reading_of).optional().map_err(jerr)
+        self.conn().query_row("SELECT * FROM readings WHERE seq = ?1", [seq], reading_of).optional().map_err(jerr)
     }
 
     /// Every reading, oldest first.
@@ -389,7 +307,7 @@ impl Journal {
     // ---- jobs and events ----
 
     pub fn put_job(&self, j: &JobRow) -> Result<()> {
-        self.conn
+        self.conn()
             .execute(
                 "INSERT INTO jobs (id, name, kind, state, folder, origin, opened_seq, closed_seq, opened_utc, closed_utc) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)
                  ON CONFLICT(id) DO UPDATE SET name = excluded.name, kind = excluded.kind, state = excluded.state, folder = excluded.folder, origin = excluded.origin,
@@ -401,7 +319,7 @@ impl Journal {
     }
 
     pub fn job(&self, id: &str) -> Result<Option<JobRow>> {
-        self.conn.query_row("SELECT * FROM jobs WHERE id = ?1 OR name = ?1 ORDER BY opened_utc DESC LIMIT 1", [id], job_of).optional().map_err(jerr)
+        self.conn().query_row("SELECT * FROM jobs WHERE id = ?1 OR name = ?1 ORDER BY opened_utc DESC LIMIT 1", [id], job_of).optional().map_err(jerr)
     }
 
     pub fn jobs(&self) -> Result<Vec<JobRow>> {
@@ -414,10 +332,10 @@ impl Journal {
     }
 
     pub fn event(&self, kind: &str, job: Option<&str>, subject: &str, state: &str, detail: &str, seq: Option<i64>) -> Result<i64> {
-        self.conn
+        self.conn()
             .execute("INSERT INTO events (utc, kind, job, subject, state, detail, seq) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)", params![now_utc(), kind, job, subject, state, detail, seq])
             .map_err(jerr)?;
-        Ok(self.conn.last_insert_rowid())
+        Ok(self.conn().last_insert_rowid())
     }
 
     /// The events after `n`, oldest first.
@@ -428,14 +346,14 @@ impl Journal {
     // ---- tests ----
 
     pub fn test_run(&self, t: &TestRun, results: &[(String, String)]) -> Result<()> {
-        self.conn
+        self.conn()
             .execute(
                 "INSERT INTO test_runs (seq, job, package, target, line, exit_code, millis, passed, failed, ignored) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10)",
                 params![t.seq, t.job, t.package, t.target, t.line, t.exit_code, t.millis, t.passed, t.failed, t.ignored],
             )
             .map_err(jerr)?;
         for (test, outcome) in results {
-            self.conn.execute("INSERT INTO tests (seq, package, target, test, outcome, millis) VALUES (?1, ?2, ?3, ?4, ?5, NULL)", params![t.seq, t.package, t.target, test, outcome]).map_err(jerr)?;
+            self.conn().execute("INSERT INTO tests (seq, package, target, test, outcome, millis) VALUES (?1, ?2, ?3, ?4, ?5, NULL)", params![t.seq, t.package, t.target, test, outcome]).map_err(jerr)?;
         }
         Ok(())
     }
@@ -452,7 +370,7 @@ impl Journal {
     /// the word an earlier custodian wrote).
     pub fn test_outcomes(&self) -> Result<Vec<(String, String, i64, i64)>> {
         let mut st = self
-            .conn
+            .conn()
             .prepare("SELECT package, test, COUNT(*), SUM(CASE WHEN outcome IN ('FAILED', 'failed') THEN 1 ELSE 0 END) FROM tests GROUP BY package, test ORDER BY 4 DESC, 3 DESC, 1, 2")
             .map_err(jerr)?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(jerr)?;
@@ -462,7 +380,7 @@ impl Journal {
     // ---- installs ----
 
     pub fn install(&self, seq: i64, action: &str, bin: &str, destination: &str, sha256: &str, receipt_json: &str) -> Result<()> {
-        self.conn
+        self.conn()
             .execute("INSERT INTO installs (seq, action, bin, destination, sha256, receipt) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![seq, action, bin, destination, sha256, receipt_json])
             .map_err(jerr)?;
         Ok(())
@@ -470,7 +388,7 @@ impl Journal {
 
     /// (seq, action, bin, destination, sha256), oldest first.
     pub fn installs(&self) -> Result<Vec<InstallRow>> {
-        let mut st = self.conn.prepare("SELECT seq, action, bin, destination, sha256 FROM installs ORDER BY seq").map_err(jerr)?;
+        let mut st = self.conn().prepare("SELECT seq, action, bin, destination, sha256 FROM installs ORDER BY seq").map_err(jerr)?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?, r.get(4)?))).map_err(jerr)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)
     }
@@ -478,29 +396,29 @@ impl Journal {
     // ---- checkpoints ----
 
     pub fn save_checkpoint(&self, job: &str, step: i64, payload: &[u8]) -> Result<i64> {
-        self.conn.execute("INSERT INTO checkpoints (job, step, payload, utc) VALUES (?1, ?2, ?3, ?4)", params![job, step, payload, now_utc()]).map_err(jerr)?;
-        Ok(self.conn.last_insert_rowid())
+        self.conn().execute("INSERT INTO checkpoints (job, step, payload, utc) VALUES (?1, ?2, ?3, ?4)", params![job, step, payload, now_utc()]).map_err(jerr)?;
+        Ok(self.conn().last_insert_rowid())
     }
 
     pub fn load_checkpoint(&self, handle: i64) -> Result<Option<Vec<u8>>> {
-        self.conn.query_row("SELECT payload FROM checkpoints WHERE handle = ?1", [handle], |r| r.get(0)).optional().map_err(jerr)
+        self.conn().query_row("SELECT payload FROM checkpoints WHERE handle = ?1", [handle], |r| r.get(0)).optional().map_err(jerr)
     }
 
     pub fn remove_checkpoint(&self, handle: i64) -> Result<()> {
-        self.conn.execute("DELETE FROM checkpoints WHERE handle = ?1", [handle]).map_err(jerr)?;
+        self.conn().execute("DELETE FROM checkpoints WHERE handle = ?1", [handle]).map_err(jerr)?;
         Ok(())
     }
 
     /// Every checkpoint of a job, gone once the job has run all its stages.
     pub fn remove_checkpoints_of(&self, job: &str) -> Result<()> {
-        self.conn.execute("DELETE FROM checkpoints WHERE job = ?1", [job]).map_err(jerr)?;
+        self.conn().execute("DELETE FROM checkpoints WHERE job = ?1", [job]).map_err(jerr)?;
         Ok(())
     }
 
     /// The reading a job's step made under `name`: its own, or the one its reuse pointed at.
     pub fn step_reading(&self, job: &str, name: &str) -> Result<Option<ReadingRow>> {
         let last: Option<(i64, Option<i64>)> = self
-            .conn
+            .conn()
             .query_row("SELECT seq, reused_seq FROM runs WHERE job = ?1 AND name = ?2 AND command = 'reading' ORDER BY seq DESC LIMIT 1", params![job, name], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()
             .map_err(jerr)?;
@@ -513,7 +431,7 @@ impl Journal {
 
     /// A job's newest checkpoint: (handle, the step it was saved after, the bytes).
     pub fn latest_checkpoint(&self, job: &str) -> Result<Option<(i64, i64, Vec<u8>)>> {
-        self.conn
+        self.conn()
             .query_row("SELECT handle, step, payload FROM checkpoints WHERE job = ?1 ORDER BY handle DESC LIMIT 1", [job], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?)))
             .optional()
             .map_err(jerr)
@@ -521,7 +439,7 @@ impl Journal {
 
     /// How many receipts the journal holds.
     pub fn count(&self) -> Result<i64> {
-        self.conn.query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0)).map_err(jerr)
+        self.receipts.count().map_err(rh)
     }
 
     /// The journal brought up to the records a checkout carries: every receipt file (`data/receipts/<seq>.json`)
@@ -533,55 +451,53 @@ impl Journal {
     /// holds every receipt and job is left as it is.
     pub fn rebuild_from(&mut self, root: &Path, receipts_dir: &Path, jobs_root: &Path) -> Result<Rebuilt> {
         let mut out = Rebuilt::default();
-        let have: std::collections::BTreeSet<i64> = self.rows("SELECT seq FROM runs", [], |r| r.get::<_, i64>(0))?.into_iter().collect();
-        let mut files: Vec<(i64, PathBuf)> = std::fs::read_dir(receipts_dir)
-            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter_map(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<i64>().ok()).map(|n| (n, p))).collect())
-            .unwrap_or_default();
-        files.sort();
         let folders = job_folders(jobs_root);
-        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(jerr)?;
-        for (n, file) in files.iter().filter(|(n, _)| !have.contains(n)) {
-            let Ok(text) = std::fs::read_to_string(file) else { continue };
-            let Ok(mut r) = serde_json::from_str::<Receipt>(&text) else { continue };
-            r.seq = *n;
-            insert_run(&tx, &r)?;
-            out.receipts += 1;
-            if let Some(row) = reading_row_of(root, &r, &folders) {
-                tx.execute(
-                    "INSERT OR IGNORE INTO readings (seq, name, kind, target, spec_digest, index_key, word, stamp, page, record, reading_digest, job) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
-                    params![row.seq, row.name, row.kind, row.target, row.spec_digest, row.index_key, row.word, row.stamp, row.page, row.record, row.reading_digest, row.job],
-                )
-                .map_err(jerr)?;
-                out.readings += 1;
-            }
-        }
-        let known: std::collections::BTreeSet<String> = {
-            let mut st = tx.prepare("SELECT id FROM jobs").map_err(jerr)?;
-            let ids = st.query_map([], |r| r.get::<_, String>(0)).map_err(jerr)?;
-            ids.collect::<rusqlite::Result<_>>().map_err(jerr)?
-        };
-        for (state, dir) in &folders {
-            let jf = custodian_kit::jobs::job_file(dir);
-            let Some(id) = jf.id.clone() else { continue };
-            if known.contains(&id) {
-                continue;
-            }
-            let closing: Option<custodian_kit::jobs::Closing> = std::fs::read_to_string(dir.join("closing.json")).ok().and_then(|t| serde_json::from_str(&t).ok());
-            let folder = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().into_owned();
-            tx.execute(
-                "INSERT OR IGNORE INTO jobs (id, name, kind, state, folder, opened_utc, closed_utc) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
-                params![id, jf.name.clone().unwrap_or_default(), jf.kind.clone().unwrap_or_else(|| "specs".into()), state, folder, closing.as_ref().and_then(|c| c.opened_utc.clone()), closing.as_ref().map(|c| c.closed_utc.clone())],
-            )
-            .map_err(jerr)?;
-            out.jobs += 1;
-        }
-        tx.commit().map_err(jerr)?;
-        let last: i64 = self.conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |r| r.get(0)).map_err(jerr)?;
-        let at = self.seq.load();
-        if (last as u64) > at {
-            self.seq.add(last as u64 - at).map_err(jerr)?;
-        }
-        out.last = last;
+        // the runs from the receipt files (receipt_history's), each reading indexed in the same transaction
+        let back = self
+            .receipts
+            .rebuild_from(receipts_dir, |conn, r| {
+                if let Some(row) = reading_row_of(root, r, &folders) {
+                    conn.execute(
+                        "INSERT OR IGNORE INTO readings (seq, name, kind, target, spec_digest, index_key, word, stamp, page, record, reading_digest, job) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                        params![row.seq, row.name, row.kind, row.target, row.spec_digest, row.index_key, row.word, row.stamp, row.page, row.record, row.reading_digest, row.job],
+                    )
+                    .map_err(|e| receipt_history::Refusal::Journal.refuse(e))?;
+                    out.readings += 1;
+                }
+                Ok(())
+            })
+            .map_err(rh)?;
+        out.receipts = back.receipts;
+        out.last = back.last;
+        // the job folders the journal does not know
+        let jobs = self
+            .receipts
+            .writing(|conn| {
+                let known: std::collections::BTreeSet<String> = {
+                    let mut st = conn.prepare("SELECT id FROM jobs").map_err(|e| receipt_history::Refusal::Journal.refuse(e))?;
+                    let ids = st.query_map([], |r| r.get::<_, String>(0)).map_err(|e| receipt_history::Refusal::Journal.refuse(e))?;
+                    ids.collect::<rusqlite::Result<_>>().map_err(|e| receipt_history::Refusal::Journal.refuse(e))?
+                };
+                let mut jobs = 0;
+                for (state, dir) in &folders {
+                    let jf = custodian_kit::jobs::job_file(dir);
+                    let Some(id) = jf.id.clone() else { continue };
+                    if known.contains(&id) {
+                        continue;
+                    }
+                    let closing: Option<custodian_kit::jobs::Closing> = std::fs::read_to_string(dir.join("closing.json")).ok().and_then(|t| serde_json::from_str(&t).ok());
+                    let folder = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().into_owned();
+                    conn.execute(
+                        "INSERT OR IGNORE INTO jobs (id, name, kind, state, folder, opened_utc, closed_utc) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                        params![id, jf.name.clone().unwrap_or_default(), jf.kind.clone().unwrap_or_else(|| "specs".into()), state, folder, closing.as_ref().and_then(|c| c.opened_utc.clone()), closing.as_ref().map(|c| c.closed_utc.clone())],
+                    )
+                    .map_err(|e| receipt_history::Refusal::Journal.refuse(e))?;
+                    jobs += 1;
+                }
+                Ok(jobs)
+            })
+            .map_err(rh)?;
+        out.jobs = jobs;
         Ok(out)
     }
 }
@@ -600,39 +516,6 @@ impl Rebuilt {
     pub fn any(&self) -> bool {
         self.receipts + self.jobs > 0
     }
-}
-
-fn insert_run(tx: &rusqlite::Transaction<'_>, r: &Receipt) -> Result<()> {
-    tx.execute(
-        "INSERT OR IGNORE INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis, runner)
-         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
-        params![
-            r.seq,
-            r.utc,
-            r.command,
-            r.name,
-            r.spec,
-            r.spec_hash,
-            r.index_key,
-            r.code_digest,
-            r.job,
-            r.reused_seq,
-            r.line,
-            r.exit_code,
-            r.accepted as i64,
-            r.disposition,
-            r.reason,
-            r.plan_id,
-            r.plan_digest,
-            r.operation_digest,
-            r.receipt_digest,
-            serde_json::to_string(&r.outputs).map_err(jerr)?,
-            r.millis,
-            r.runner,
-        ],
-    )
-    .map_err(jerr)?;
-    Ok(())
 }
 
 /// Every job folder under `state/jobs/`, with its state (`queued`, `running`, `done`).
@@ -714,23 +597,8 @@ mod tests {
         }
     }
 
-    #[test]
-    fn two_journals_on_one_file_never_take_one_number() {
-        let dir = std::env::temp_dir().join(format!("custodian-journal-{}", std::process::id()));
-        let file = dir.join("journal.sqlite");
-        let mut a = Journal::open(&file).unwrap();
-        let mut b = Journal::open(&file).unwrap();
-        let at = |n: i64| Ok(dir.join(format!("{n}.json")));
-        let (n1, _) = a.keep(&mut receipt("one"), at).unwrap();
-        let (n2, _) = b.keep(&mut receipt("two"), at).unwrap();
-        let (n3, f3) = a.keep(&mut receipt("three"), at).unwrap();
-        assert_eq!((n1, n2, n3), (1, 2, 3));
-        let back: Receipt = serde_json::from_str(&std::fs::read_to_string(f3).unwrap()).unwrap();
-        assert_eq!((back.seq, back.name.as_str()), (3, "three"));
-        assert_eq!(a.receipt(2).unwrap().unwrap().name, "two");
-        assert_eq!(b.receipts().unwrap().len(), 3);
-    }
-
+    // `two_journals_on_one_file_never_take_one_number` moved with the sequence it proves: receipt_history's
+    // tests/journal.rs. The one below proves custodian's tables sit beside receipt_history's in one file.
     #[test]
     fn a_journal_custodian_kit_made_is_extended_not_replaced() {
         let dir = std::env::temp_dir().join(format!("custodian-kit-journal-{}", std::process::id()));
