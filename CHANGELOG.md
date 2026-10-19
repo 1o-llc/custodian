@@ -1,6 +1,51 @@
 # Changelog
 
-## 0.2.0 (2026-10-19)
+## 0.3.0 (2026-10-19)
+
+custodian on custodian_kit 0.3.0 and the history crates it split into. The
+machinery custodian held for receipts and counts now lives in those crates,
+and custodian calls them. What it does on the command line is unchanged.
+Every link is pinned to a216685; the earlier lines are pinned to cd22817
+(0.2.0).
+
+- The journal ([src/journal.rs#L224](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/journal.rs#L224)) is receipt_history's journal with
+  custodian's tables on its connection: `readings`, `events`,
+  `test_runs`, `installs`, `checkpoints`.
+  - Keeping a receipt ([src/journal.rs#L247](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/journal.rs#L247)) and reading receipts are
+    receipt_history's. Keeping takes the number, writes the file and inserts
+    the row in one writing transaction.
+  - Rebuilding the `runs` from the receipt files is receipt_history's too.
+    custodian indexes each rebuilt reading inside the same transaction, then
+    puts back the job folders the journal does not know
+    ([src/journal.rs#L452](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/journal.rs#L452)).
+  - Before, all of this was custodian's own: [src/journal.rs#L245](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/journal.rs#L245),
+    [src/journal.rs#L274](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/journal.rs#L274), [src/journal.rs#L534](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/journal.rs#L534) and
+    [src/journal.rs#L605](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/journal.rs#L605).
+  - A refusal from receipt_history reads as custodian's `CUST1301` (the
+    journal) or its write code ([src/journal.rs#L153](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/journal.rs#L153)).
+  - One behaviour changes. A receipt file now ends with a newline, as
+    custodian_kit's receipt files always did.
+- The counts are tree_history's.
+  - The count table and the diff table are re-exported where they were
+    ([src/counting.rs#L21](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/counting.rs#L21)).
+  - Reading every count from the journal ([src/counting.rs#L49](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/counting.rs#L49)) and naming
+    one by its receipt number, job, commit or date ([src/counting.rs#L54](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/counting.rs#L54))
+    call tree_history's `counts_in` and `resolve`.
+  - These were [src/counting.rs#L50](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/counting.rs#L50), [src/counting.rs#L87](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/counting.rs#L87),
+    [src/counting.rs#L116](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/counting.rs#L116) and [src/counting.rs#L152](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/counting.rs#L152).
+- `custodian count history` answers through differences_kit's
+  `count_history` ([src/counting.rs#L103](https://github.com/1o-llc/custodian/blob/a2166857abd1b2611161b98d6099fdb188449163/src/counting.rs#L103)), the library the `differences`
+  command line is. Before, it was [src/counting.rs#L232](https://github.com/1o-llc/custodian/blob/cd2281740ae5a79290311217c9238509dcc8cf1f/src/counting.rs#L232).
+- The test `two_journals_on_one_file_never_take_one_number` moved with the
+  sequence it proves to receipt_history's tests/journal.rs, where it passes.
+  `a_journal_custodian_kit_made_is_extended_not_replaced` stays here: it
+  proves custodian's tables sit beside receipt_history's in one file.
+- New dependencies: receipt_history, tree_history and differences_kit, each
+  0.1.0.
+
+Proof: `cargo test`, 54 tests. That is every test of 0.2.0 but the one that
+moved. The fixture project runs every line through the built program, the
+MCP server over stdio, and the bounded-mode tests with code-passenger.## 0.2.0 (2026-10-19)
 
 bounded and unbounded jobs, the 2026-10-19 specification's second section, on custodian_kit 0.2.0 and with code_passenger 0.4.0 as the writer. what the specification asks, row by row, and where each is met: [docs/spec-gap-2026-10-19.md](https://github.com/1o-llc/custodian/blob/6ac3f6e9f9f0d4f86cc44f8431aba9bddc42877c/docs/spec-gap-2026-10-19.md). every link is pinned to 6ac3f6e.
 
