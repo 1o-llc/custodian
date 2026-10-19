@@ -1,3 +1,5 @@
+// Copyright © 2026 1o. All rights reserved.
+
 //! The bounded and unbounded lines: `preflight` and `transform` (a change spec, decided then made), `plan make |
 //! approve | show` (an intent's plan, and a step of it as a change spec), `decide` (the open decisions, and one
 //! made), `linkage add | check` (why declarations are bound together).

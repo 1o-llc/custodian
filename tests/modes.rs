@@ -1,3 +1,5 @@
+// Copyright © 2026 1o. All rights reserved.
+
 //! The spec increment through the command line: the journal rebuilt from the receipts, the agent's brief and the
 //! pre-edit guard, a bounded job written through a change spec (preflight, transform, close accepted) and one
 //! refused for a hand edit, the decisions asked once, the plan of an intent, linkage records, the job lock, and the

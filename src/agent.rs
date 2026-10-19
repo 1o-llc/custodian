@@ -1,3 +1,5 @@
+// Copyright © 2026 1o. All rights reserved.
+
 //! `custodian agent brief` and `custodian agent guard`: the first line an agent runs in a project, and the question
 //! the pre-edit hook asks before an edit.
 //!

@@ -61,12 +61,63 @@ Built and tested in this version:
   code_passenger's gating spec
 - a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs
 - `self install` through the installation crate, and a pre-edit hook script (not enabled)
+- bounded and unbounded jobs (below), the `impact` reading (one target's uses, constructions, matches, impls,
+  dependents, reach, tests, features and the cost of changing it, each dimension measured, heuristic or unknown),
+  change specs with their preflight and code_passenger's `transform`, the plan of an intent, decisions asked once,
+  linkage records, and `agent brief`, the handoff an agent reads first
+- a fresh checkout rebuilds its journal from the receipts it carries
 
+Planned, not built: the enterprise edition (several daemons over a fleet of workspaces); core-1o 0.2.0 for every
+document (docs/spec-gap-2026-10-19.md says what it drops).
 
-Planned, not built (from the specification): bounded and unbounded modes; structured change-impact and cost
-analysis; SimpleImpl transformation contracts; specification files as the central contract for transformations;
-architectural linkage records and comments; durable task handoffs beyond what a job's closing receipt carries
-now.
+## Modes
+
+A job is bounded or unbounded. The mode is in the job document (`mode`), `job start --mode` sets it, and
+`job_mode` in `config/custodian.toml` is the default when a job names none (unbounded when unset). `agent brief`
+says the mode first.
+
+**Bounded is strict.** The agent writes no code. It writes a change spec (`.custodian/data/specs/changes/`: one
+operation, such as `add_field` or `make_fn`, its target, its boundaries, and any function body as simple_impl's
+toolkit pieces), and custodian does the rest:
+
+1. `custodian preflight SPEC` reads where the change lands, its impact and cost, its preconditions, the files it
+   would write against the scope it may write, and the decisions it leaves open. It is authorized only when its
+   rules hold (a big-bad-bool word over flaga's rules: the target is known, the outcome is known, the scope holds,
+   no decision is open, the name is free). Nothing is written. Its receipt carries the spec's digest and the
+   code's.
+2. `custodian transform SPEC --write` runs code_passenger's `transform` line on that preflight receipt. A spec or
+   code that moved since the preflight is refused. code_passenger proves the change on a scratch copy first (cargo
+   check over each affected crate's feature configurations, then a fresh scan for the facts the operation
+   promises), then writes it and keeps a transform record. A test is code too: it is written with `add_test`.
+3. `custodian job close` checks every Rust and TOML line the job touched against its transform records. A line no
+   transform covers refuses the close (CUST0031): the job is still closed, its result `rejected`, the lines named
+   by file, because a partial task must not look finished.
+
+With the pre-edit hook enabled, a bounded job refuses a hand edit before it happens (`custodian agent guard
+FILE`, exit 2). A bounded job needs code-passenger installed: it is the writer.
+
+**Unbounded is help.** Everything above is there to use: readings, `plan make`, impact and cost, the decisions
+list, reuse by digest. The agent writes code itself and nothing is refused. The closing receipt still records what
+ran and the lines touched.
+
+## Jobs: what is known at the start
+
+Two facts are recorded for every job when it opens, whatever its mode:
+
+- **target known**: the job's `--target` resolves to a route or an item through the index.
+- **outcome known**: the job says what done looks like up front, `--verify LINE`: `test:<name>`, `reading:<spec>`
+  (a reading that must change) or `check:<which>`. `custodian job verify LINE` declares it later.
+
+The closing receipt records the receipt number at which each became true. A bounded job needs both before a
+preflight authorizes anything. When the outcome is not known, the job's first decision is "what does done look
+like for <job>?" (`custodian decide` lists it; answering it with a verify line declares it). `job close` writes
+`accepted` only when every verify line was satisfied by the job's own runs; with none it writes `pending`, with the
+reason, never `accepted`.
+
+Decisions are task-history records: a question asked is a `problem`, its answer a `solution` with the reason
+(`custodian decide ID ANSWER --why TEXT`). A question answered anywhere in the project is never asked again. The
+task states (proposed, ready, running, blocked, paused, verifying, completed, failed) are derived from the
+records, never stored twice.
 
 ## Using it
 
@@ -77,6 +128,11 @@ custodian run env.toml                 # one spec; again: "search #N ... reused"
 custodian run crate:core_lib --kind reach
 custodian run                          # every queued spec, then every queued job folder
 custodian list                         # the inventory, rendered from the journal
+custodian agent brief                  # the first line an agent runs: mode, open job, decisions, next lines
+custodian run core_lib::Config --kind impact
+custodian plan make "add a digest to the config"
+custodian job start digest --mode bounded --target core_lib::Config --verify test:core_lib
+custodian preflight config-digest      # then: custodian transform config-digest --write
 ```
 
 A spec is a small TOML file:
@@ -99,9 +155,10 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `run [SPEC\|ROUTE] [--kind K] [--job ID] [--again]` | one spec (a file, or a queued or done spec's name), a search on the line, or the queue |
 | `list` | the inventory: specs, the latest reading of each, jobs, test lines, installs, the folder's parts |
 | `diff SPEC [--from N] [--to N]` | what moved between two readings of one spec |
-| `job start\|close\|brief\|import\|list [NAME\|ID\|BUNDLE] [--intent TEXT] [--bundle]` | jobs as folders, run by custodian_kit; the closing receipt (every reading, reuse, test and check run while the job was open) and the task history; the brief (lines touched, revision), with `--bundle` the job packed as one file too; a bundled job imported under a new id |
-| `count [ROUTE] [--by crate\|language] [--tests]`, `count report A B`, `count history [ROUTE]` | a count as a reading; two counts compared (by receipt number, job, `job:open`/`job:close`, commit or date); every count of a route |
-| `test [report] [--affected\|--all] [--observe failed\|progress\|all] [--ref REF]` | the affected tests (or all), a receipt per cargo line; `report`: slowest lines, flakiest tests, maintenance's timed report |
+| `agent brief [--head]`, `agent guard FILE` | the handoff an agent reads first; whether a file may be edited by hand now (the hook's question) |
+| `job start [NAME] [--kind K] [--target T] [--intent TEXT] [--mode bounded\|unbounded] [--verify LINE]... [--again]`, `job close\|brief\|import\|list\|verify` | jobs as folders, run by custodian_kit; the closing receipt (every reading, reuse, test and check run while the job was open) and the task history; the brief (lines touched, revision), with `--bundle` the job packed as one file too; a bundled job imported under a new id |
+| `count of [ROUTE] [--by crate\|language] [--tests]`, `count report A B`, `count history [ROUTE]` | a count as a reading; two counts compared (by receipt number, job, `job:open`/`job:close`, commit or date); every count of a route |
+| `test run\|report [--affected\|--all] [--observe failed\|progress\|all] [--ref REF]` | the affected tests (or all), a receipt per cargo line; `report`: slowest lines, flakiest tests, maintenance's timed report |
 | `check sensitivity\|mechanism\|boundary\|supersedes\|reads_env\|golden\|all` | maintenance's check line with `--registry`, its JSON kept; the line writes `.maintenance/registry.json`, the one registry the readings carry |
 | `annotate [--from CHECK_JSON] [--apply]` | the plan of maintenance attributes the receipts call for; `--apply` places each through `code-passenger attr place` |
 | `features [--apply]` | primary and feature-eligible dependencies, each with its scope depth and the unavailable list; code_passenger's `klepto.toml` spec and the gate-header lines (`features-unavailable.toml`); `--apply` runs `code-passenger gate --write` |
@@ -112,6 +169,15 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `serve` / `stop` | the resident on the project's socket |
 | `watch [--observe L] [--since N] [--follow]` | job state changes and test progress, through the observer set |
 | `self install\|uninstall\|status` | install custodian through the installation crate, the receipt in the journal |
+| `preflight SPEC [--job ID]` | what a change spec entails over the code as it is, and whether it is authorized; nothing written |
+| `transform SPEC [--write]`, `transform --revert RECORD` | the change spec made by code_passenger on its preflight receipt; a record's files put back |
+| `plan make INTENT [--name N]`, `plan approve PLAN STEP [--operation OP]`, `plan show PLAN` | an intent's plan (where, reuse, what is new, impact, cost, decisions, steps); a step as a change spec |
+| `decide [ID ANSWER] [--why TEXT]` | the open decisions together; one answered, never asked again |
+| `linkage add NAME --kind K --why TEXT --bind A --bind B`, `linkage check [TARGET]` | why declarations are bound together, each bind resolved; stale, to review or holding |
+
+`custodian` with no words prints these lines with their help, generated from the declarations
+(`tests/golden/help.txt` holds them). The 0.1.0 spellings `count [ROUTE]`, `test [--all]` and `plan INTENT` still
+read.
 
 ## The folder
 
@@ -121,6 +187,10 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 .custodian/config/{features,annotate}.toml the rules features and annotate read
 .custodian/config/jobs/<kind>.toml        the job templates (agent)
 .custodian/data/specs/{queued,done}/      specs
+.custodian/data/specs/changes/            change specs (`v1.<name>.1o.change`, or the TOML twin)
+.custodian/data/preflight/<name>/         every preflight, dated
+.custodian/data/plans/, linkage/          plans, linkage records
+.custodian/jobs.lock                      held by job start, job close and the queue
 .custodian/data/readings/<name>/<stamp>.{md,json}   every reading, dated, none overwritten
 .custodian/data/receipts/<seq>.json       one receipt per run
 .custodian/data/inventory.md              the inventory
@@ -171,12 +241,14 @@ bytes of one request.
 `custodian mcp serve` is an MCP server on stdin and stdout (built with the `mcp` feature, on by default; the SDK is
 rmcp, the official Rust one). Its tools are custodian's own lines, made from their declarations in
 `src/surface.rs`: one tool per line an agent runs, each tool's input schema the line's declared fields (a flag is a
-boolean, a list an array, the rest strings, a field's word set its `enum`, its `///` its description). The tools:
-`run` (a search on the line is `target` with `kind`, as `reach`), `list`, `diff`, `job_start`, `job_close`,
-`job_brief`, `job_list`, `test`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
-`diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report` and
-`count_history`. `init`, `agent`, `sweep`, `serve`, `stop`, `watch`, `self` and `mcp` are a person's and are never
-tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new subcommand fails the tests until it is
+boolean, a list an array, the rest strings, a field's word set its `enum`, its `///` its description). Each tool is named
+by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a search on the line is `target` with
+`kind`, as `reach` or `impact`), `list`, `diff`, `job_start`, `job_close`, `job_brief`, `job_list`, `job_verify`,
+`test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
+`diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
+`count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add` and
+`linkage_check`. `init`, `agent init`, `agent guard`, `job import`, `sweep`, `serve`, `stop`, `watch`, `self *` and
+`mcp serve` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
 declared one or the other in `src/mcp.rs`.
 
 A call runs the way the command line runs: the arguments become the declared line's words, read back through the
@@ -233,9 +305,9 @@ repository moved to the organization does not move the copyright in its code; th
 documented separately. Copyright ownership, crates.io publishing permissions, repository administration and the
 software's license are four separate things.
 
-The intended notice, once the assignments are documented, is: Copyright © 2026 1o. All rights reserved. It is not
-applied here yet. The `LICENSE-MIT` in this repository, like those of the published crates, reads
-`Copyright (c) 2026 1o LLC`; it is left as it was found.
+The notice is: Copyright © 2026 1o. All rights reserved. It heads every file new in 0.2.0; the notices already in
+the repository are left as they were found (the `LICENSE-MIT` here, like those of the published crates, reads
+`Copyright (c) 2026 1o LLC`).
 
 ## Licensing
 
@@ -251,7 +323,11 @@ Hunt's.
 ## Building
 
 custodian depends by path on [custodian_kit](../custodian_kit), which sits beside it, and on the crates.io
-`maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses (custodian_kit 0.1.1: a job's close reads cargo's test
-outcomes, the words custodian writes). `cargo test` runs 44 tests:
-the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
-`tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.89 or later.
+`maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses (custodian_kit 0.2.0: the impact reading, change specs
+and their preflight, plans, decisions, linkage records, bounded jobs). The bounded mode's writer is
+[code_passenger](../code_passenger) 0.4.0, a program custodian runs, not a dependency. `cargo test` runs 55 tests:
+the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`), `tests/modes.rs`
+(bounded and unbounded jobs, the brief, decisions, plans, linkage, the journal rebuilt, the job lock, the help
+lines), `tests/mcp.rs` and `tests/runtime.rs` (checkpoint resume, the job queue). The bounded tests run
+code-passenger built from `../code_passenger` (or the directory `CUSTODIAN_TEST_PASSENGER` names) and say when
+they skip. Rust 1.89 or later.

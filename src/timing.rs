@@ -1,3 +1,5 @@
+// Copyright © 2026 1o. All rights reserved.
+
 //! Every duration custodian waits by, declared once, as xccute declares its own (`xccute::timing`): a wait names
 //! its line here and nothing else in custodian holds a number of seconds. The job lock's waits are xccute's hold
 //! waits, taken from its table; the journal's is custodian_kit's.
