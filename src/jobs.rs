@@ -75,6 +75,21 @@ fn runner_workspace(ctx: &mut Ctx) -> Result<Option<&custodian_kit::api::Workspa
     Ok(Some(ctx.workspace(&custodian_kit::api::Scope::default(), custodian_kit::api::Resolving::Job)?))
 }
 
+/// The newest folder in `state` a name or id names: a job name run again has a folder per run, and its brief is
+/// its latest run's (by when it closed, else by folder name).
+fn find_latest(layout: &Layout, state: &str, which: &str) -> Result<Option<PathBuf>> {
+    let mut all: Vec<PathBuf> = folders(layout, state)?
+        .into_iter()
+        .filter(|p| {
+            let jf = job_file(p);
+            p.file_name().is_some_and(|n| n == which) || jf.id.as_deref() == Some(which) || jf.name.as_deref() == Some(which)
+        })
+        .collect();
+    let closed = |p: &PathBuf| std::fs::metadata(p.join("closing.json")).and_then(|m| m.modified()).ok();
+    all.sort_by_key(|p| (closed(p), p.clone()));
+    Ok(all.pop())
+}
+
 /// The ids of the jobs in `jobs/running`.
 pub fn running_ids(layout: &Layout) -> Result<Vec<String>> {
     Ok(folders(layout, "running")?.iter().map(|p| job_file(p).id.unwrap_or_else(|| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())).collect())
@@ -245,7 +260,7 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
 pub fn brief(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let layout = ctx.layout()?.clone();
     let folder = match which {
-        Some(w) => find(&layout, "done", w)?,
+        Some(w) => find_latest(&layout, "done", w)?,
         None => folders(&layout, "done")?.into_iter().last(),
     };
     let folder = folder.ok_or_else(|| Code::NoSuchJob.refuse(format!("{} in jobs/done (a job's brief is written when it closes)", which.unwrap_or("(any)"))))?;
