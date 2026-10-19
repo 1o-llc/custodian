@@ -2,8 +2,8 @@
 name = "custodian"
 version = "0.1.0"
 edition = "2021"
-# ob-serve-a-bowl 0.2 needs 1.88
-rust-version = "1.88"
+# ob-serve-a-bowl 0.2 needs 1.88; xccute 0.3.1 (the job lock is std File::try_lock) needs 1.89
+rust-version = "1.89"
 
 license = "MIT OR Apache-2.0"
 description = "Repository awareness for coding agents before they act: reading specs over a Rust workspace, each run a declared xccute line with a receipt, a SQLite journal, jobs as folders, a resident socket, and the maintenance loop"
@@ -23,20 +23,22 @@ path = "src/main.rs"
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 # 0.1.1: a job's close reads cargo's test outcomes (`FAILED`), the words custodian writes
-custodian_kit = { version = "0.1.1", path = "../custodian_kit" }
+custodian_kit = { version = "0.2.0", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
 task_history = "0.1.0"
 # the checks and the timing report, run as maintenance's own declared lines
 maintenance = { version = "0.1.0", features = ["check", "runner"] }
 
 # every subcommand a declared line; every run executed through the runtime with a receipt
-simple_impl_derive = "0.2.6"
-xccute_contract = "0.1.2"
+simple_impl_derive = "0.2.7"
+xccute_contract = "0.1.3"
 xccute_runtime = "0.1.2"
+# a job held under the workspace's job lock (`Hold` over a `LockFile`), every wait from one timing table
+xccute = "0.3.1"
 # the cargo test lines (nothing redeclared)
 xccute_commands = "0.1.1"
 # the gates a run asks before it acts: same search, a job running, a triage step's input
-xccute_decisions = "0.1.1"
+xccute_decisions = "0.2.1"
 # the journal's sequence: a checked counter
 uh-tom-mick = "0.1.1"
 # every digest, over one canonical byte form

@@ -30,7 +30,7 @@ pub fn main_argv(args: &[OsString]) -> i32 {
         }
     };
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
-    if let Line::Mcp(m) = &line {
+    if let Line::McpServe(m) = &line {
         return mcp_serve(&here, so(&m.root));
     }
     if let Some(outcome) = crate::serve::try_socket(&here, &line) {
@@ -52,11 +52,18 @@ pub fn main_argv(args: &[OsString]) -> i32 {
     outcome.code
 }
 
-/// Every line, for `custodian` with no words.
+/// Every line, for `custodian` with no words: the root's help lines, generated from the declarations.
 pub fn usage() -> String {
     let mut s = String::from("custodian: readings of a Rust workspace, each run a declared line with a receipt\n\n");
-    for (_, u) in surface::USAGE {
-        s.push_str(&format!("  custodian {u}\n"));
+    let lines = surface::usage_lines();
+    let width = lines.iter().map(|l| l.words.chars().count()).max().unwrap_or(0).min(72);
+    for l in lines {
+        let about = l.about.split(". ").next().unwrap_or(l.about).trim_end_matches('.');
+        if l.words.chars().count() > width {
+            s.push_str(&format!("  {}\n  {:width$}  {about}\n", l.words, ""));
+        } else {
+            s.push_str(&format!("  {:width$}  {about}\n", l.words));
+        }
     }
     s.push_str("\nexit status: 0 done, 1 findings, 2 refused. Inside an initialized folder (.custodian here or above) every run is journaled; elsewhere it is free mode and nothing is stored.\n");
     s
@@ -73,27 +80,50 @@ pub fn run_line(ctx: &mut Ctx, line: &Line) -> Outcome {
 
 /// The handler of each line.
 pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
+    use crate::install::SelfAsk;
     match line {
-        Line::Init(l) => init(ctx, FolderMode::Plain, l.macros),
-        Line::Agent(l) => init(ctx, FolderMode::Agent, l.macros),
+        Line::Init(l) => init(ctx, FolderMode::Plain, l.macros, so(&l.job_mode)),
+        Line::AgentInit(l) => init(ctx, FolderMode::Agent, l.macros, so(&l.job_mode)),
+        Line::AgentBrief(l) => crate::agent::brief(ctx, l.head),
+        Line::AgentGuard(l) => crate::agent::guard(ctx, &s(&l.file)),
         Line::Run(l) => run(ctx, l),
         Line::List(_) => readings::list(ctx),
         Line::Diff(l) => readings::diff(ctx, &s(&l.spec), so(&l.from).and_then(|v| v.parse().ok()), so(&l.to).and_then(|v| v.parse().ok())),
-        Line::Job(l) => job(ctx, l),
-        Line::Test(l) => crate::testing::test(ctx, l),
+        Line::JobStart(l) => job_start(ctx, l),
+        Line::JobClose(l) => need_agent(ctx).and_then(|_| crate::jobs::close(ctx, so(&l.name).as_deref())),
+        Line::JobBrief(l) => need_agent(ctx).and_then(|_| crate::jobs::brief(ctx, so(&l.name).as_deref(), l.bundle)),
+        Line::JobImport(l) => need_agent(ctx).and_then(|_| crate::jobs::import(ctx, Path::new(&s(&l.bundle)), crate::runtime::Limit::default())),
+        Line::JobList(_) => need_agent(ctx).and_then(|_| crate::jobs::list(ctx)),
+        Line::JobVerify(l) => need_agent(ctx).and_then(|_| crate::jobs::verify(ctx, so(&l.job).as_deref(), &s(&l.line))),
+        Line::TestRun(l) => crate::testing::test(ctx, l),
+        Line::TestReport(_) => crate::testing::report(ctx),
         Line::Check(l) => crate::maint::check(ctx, &s(&l.which), so(&l.job)),
         Line::Annotate(l) => crate::maint::annotate(ctx, so(&l.from).as_deref(), l.apply),
         Line::Features(l) => crate::maint::features(ctx, l.apply),
-        Line::Diagnostics(l) => crate::diag::diagnostics(ctx, &s(&l.action), so(&l.arg).as_deref()),
+        Line::DiagnosticsList(l) => crate::diag::diagnostics(ctx, "list", so(&l.krate).as_deref()),
+        Line::DiagnosticsWhere(l) => crate::diag::diagnostics(ctx, "where", Some(&s(&l.code))),
+        Line::DiagnosticsFrom(l) => crate::diag::diagnostics(ctx, "from", Some(&s(&l.log))),
         Line::Triage(l) => crate::diag::triage(ctx, &s(&l.target)),
         Line::Bundle(l) => crate::bundling::bundle(ctx, l),
         Line::Sweep(l) => readings_sweep(ctx, &s(&l.dir)),
-        Line::Count(l) => crate::counting::count(ctx, l),
+        Line::CountOf(l) => crate::counting::count(ctx, l),
+        Line::CountReport(l) => crate::counting::report(ctx, &s(&l.a), &s(&l.b)),
+        Line::CountHistory(l) => crate::counting::history(ctx, so(&l.route).as_deref()),
         Line::Serve(_) => Err(Code::ServeRunning.refuse("serve runs in the foreground: custodian serve")),
         Line::Stop(_) => Ok(Ran { said: vec!["no resident answers on this project's socket: nothing to stop".into()], ..Ran::named("stop") }),
         Line::Watch(l) => crate::observe::watch(ctx, l),
-        Line::SelfCmd(l) => crate::install::self_line(ctx, l),
-        Line::Mcp(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
+        Line::SelfInstall(l) => crate::install::self_line(ctx, &SelfAsk { action: "install", from: so(&l.from), bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), dry_run: l.dry_run, force: l.force }),
+        Line::SelfUninstall(l) => crate::install::self_line(ctx, &SelfAsk { action: "uninstall", bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), force: l.force, ..SelfAsk::default() }),
+        Line::SelfStatus(l) => crate::install::self_line(ctx, &SelfAsk { action: "status", bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), ..SelfAsk::default() }),
+        Line::McpServe(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
+        Line::Preflight(l) => crate::changes::preflight(ctx, &s(&l.spec), so(&l.job)),
+        Line::Transform(l) => crate::changes::transform(ctx, so(&l.spec).as_deref(), l.write, so(&l.revert).as_deref(), so(&l.job)),
+        Line::PlanMake(l) => crate::changes::plan(ctx, &s(&l.intent), so(&l.name)),
+        Line::PlanApprove(l) => crate::changes::approve(ctx, &s(&l.plan), &s(&l.step), so(&l.operation).as_deref()),
+        Line::PlanShow(l) => crate::changes::show(ctx, &s(&l.plan)),
+        Line::Decide(l) => crate::changes::decide(ctx, so(&l.id).as_deref(), so(&l.answer).as_deref(), so(&l.why).as_deref()),
+        Line::LinkageAdd(l) => crate::changes::linkage_add(ctx, &s(&l.name), so(&l.kind).as_deref(), so(&l.why).as_deref(), &l.bind.iter().map(s).collect::<Vec<_>>()),
+        Line::LinkageCheck(l) => crate::changes::linkage_check(ctx, so(&l.target).as_deref()),
     }
 }
 
@@ -144,16 +174,16 @@ fn run(ctx: &mut Ctx, l: &surface::Run) -> Result<Ran> {
     }
 }
 
-fn job(ctx: &mut Ctx, l: &surface::Job) -> Result<Ran> {
-    ctx.mode.need_project()?.need_agent()?;
-    let name = so(&l.name);
-    match s(&l.action).as_str() {
-        "start" => crate::jobs::start(ctx, &crate::jobs::StartAsk { which: name, kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, ..Default::default() }),
-        "close" => crate::jobs::close(ctx, name.as_deref()),
-        "brief" => crate::jobs::brief(ctx, name.as_deref(), l.bundle),
-        "import" => crate::jobs::import(ctx, Path::new(name.as_deref().unwrap_or_default()), crate::runtime::Limit::default()),
-        _ => crate::jobs::list(ctx),
-    }
+fn need_agent(ctx: &Ctx) -> Result<()> {
+    ctx.mode.need_project()?.need_agent()
+}
+
+fn job_start(ctx: &mut Ctx, l: &surface::JobStart) -> Result<Ran> {
+    need_agent(ctx)?;
+    crate::jobs::start(
+        ctx,
+        &crate::jobs::StartAsk { which: so(&l.name), kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, mode: so(&l.mode), verify: l.verify.iter().map(s).collect(), ..Default::default() },
+    )
 }
 
 fn readings_sweep(ctx: &mut Ctx, dir: &str) -> Result<Ran> {
@@ -169,7 +199,7 @@ fn readings_sweep(ctx: &mut Ctx, dir: &str) -> Result<Ran> {
 /// `custodian init` / `custodian agent init`: the folder, its settings, the declared routes file, the rules
 /// custodian reads, and (agent) the job folders and templates. An existing folder is kept; its mode is raised to
 /// agent when asked.
-pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
+pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool, job_mode: Option<String>) -> Result<Ran> {
     let here = std::env::current_dir().map_err(|e| Code::Write.refuse(e))?;
     let root = match &ctx.mode {
         Mode::Journaled(p) => p.root().to_path_buf(),
@@ -179,9 +209,12 @@ pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
     let mut ran = Ran::named(layout::FOLDER);
     let mut made: Vec<PathBuf> = Vec::new();
     let settings_file = layout.path::<layout::Settings>(&[])?;
-    let mut settings: Settings = std::fs::read_to_string(&settings_file).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or(Settings { mode, exclude: Vec::new() });
+    let mut settings: Settings = std::fs::read_to_string(&settings_file).ok().and_then(|t| toml::from_str(&t).ok()).unwrap_or(Settings { mode, exclude: Vec::new(), job_mode: None });
     if mode == FolderMode::Agent {
         settings.mode = FolderMode::Agent;
+    }
+    if let Some(m) = &job_mode {
+        settings.job_mode = Some(m.parse().map_err(|e: String| Code::WordRefused.refuse(e))?);
     }
     write_whole(&settings_file, toml::to_string(&settings).map_err(|e| Code::Write.refuse(e))?.as_bytes())?;
     made.push(settings_file);
@@ -221,6 +254,12 @@ pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
             std::fs::create_dir_all(&d).map_err(|e| Code::Write.refuse(format!("{}: {e}", d.display())))?;
             made.push(d);
         }
+    }
+    // the job lock a queue run holds (xccute's LockFile never makes it)
+    let lock = layout.folder().join(crate::runtime::JOB_LOCK);
+    if !lock.exists() {
+        write_whole(&lock, b"")?;
+        made.push(lock);
     }
     let journal_file = layout.path::<layout::Journal>(&[])?;
     let fresh = !journal_file.exists();

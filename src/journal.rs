@@ -247,7 +247,7 @@ impl Journal {
             std::fs::create_dir_all(d).map_err(|e| Code::Write.refuse(format!("{}: {e}", d.display())))?;
         }
         let conn = Connection::open(path).map_err(|e| jerr(format!("{}: {e}", path.display())))?;
-        conn.busy_timeout(std::time::Duration::from_secs(10)).map_err(jerr)?;
+        conn.busy_timeout(crate::timing::JOURNAL_BUSY).map_err(jerr)?;
         conn.execute_batch(custodian_kit::store::JOURNAL_SCHEMA).map_err(jerr)?;
         conn.execute_batch(SCHEMA).map_err(jerr)?;
         let have: Vec<String> = {
@@ -353,18 +353,21 @@ impl Journal {
         Ok(())
     }
 
-    /// The newest reading of this spec over this code, with the receipt that made it.
-    pub fn same_search(&self, spec_digest: &str, index_key: &str) -> Result<Option<(ReadingRow, Receipt)>> {
-        let row = self
+    /// The newest reading of this spec over this code, with the receipt that made it: the kit's one key (the
+    /// spec's hash and klepto's fingerprint of the code, `custodian_kit::api::SearchKey`) looked up in the runs, as
+    /// custodian_kit's own journal looks it up, and the reading the index keeps under that run.
+    pub fn same_search(&self, spec_hash: &str, code_digest: &str) -> Result<Option<(ReadingRow, Receipt)>> {
+        let receipt = self
             .conn
-            .query_row("SELECT * FROM readings WHERE spec_digest = ?1 AND index_key = ?2 ORDER BY seq DESC LIMIT 1", params![spec_digest, index_key], reading_of)
+            .query_row(
+                "SELECT * FROM runs WHERE command = 'reading' AND spec_hash = ?1 AND code_digest = ?2 AND accepted = 1 AND reused_seq IS NULL ORDER BY seq DESC LIMIT 1",
+                params![spec_hash, code_digest],
+                receipt_of,
+            )
             .optional()
             .map_err(jerr)?;
-        match row {
-            Some(r) => {
-                let receipt = self.receipt(r.seq)?.ok_or_else(|| jerr(format!("reading #{} has no receipt", r.seq)))?;
-                Ok(Some((r, receipt)))
-            }
+        match receipt {
+            Some(r) => Ok(self.reading(r.seq)?.map(|row| (row, r))),
             None => Ok(None),
         }
     }
@@ -520,6 +523,163 @@ impl Journal {
     pub fn count(&self) -> Result<i64> {
         self.conn.query_row("SELECT COUNT(*) FROM runs", [], |r| r.get(0)).map_err(jerr)
     }
+
+    /// The journal brought up to the records a checkout carries: every receipt file (`data/receipts/<seq>.json`)
+    /// the journal has no row for is put back under its own number, with the reading it made indexed (its page and
+    /// record where the receipt names them, else the copy in its job's folder, wherever the folder is now), and every
+    /// job folder (`state/jobs/<state>/<job>/`) the journal does not know is put back with its state and times. The
+    /// journal is machine state, never committed; the receipts and the job folders are the record, so a fresh
+    /// checkout's journal is rebuilt from them and its sequence continues from the highest receipt. A journal that
+    /// holds every receipt and job is left as it is.
+    pub fn rebuild_from(&mut self, root: &Path, receipts_dir: &Path, jobs_root: &Path) -> Result<Rebuilt> {
+        let mut out = Rebuilt::default();
+        let have: std::collections::BTreeSet<i64> = self.rows("SELECT seq FROM runs", [], |r| r.get::<_, i64>(0))?.into_iter().collect();
+        let mut files: Vec<(i64, PathBuf)> = std::fs::read_dir(receipts_dir)
+            .map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter_map(|p| p.file_stem().and_then(|s| s.to_str()).and_then(|s| s.parse::<i64>().ok()).map(|n| (n, p))).collect())
+            .unwrap_or_default();
+        files.sort();
+        let folders = job_folders(jobs_root);
+        let tx = self.conn.transaction_with_behavior(rusqlite::TransactionBehavior::Immediate).map_err(jerr)?;
+        for (n, file) in files.iter().filter(|(n, _)| !have.contains(n)) {
+            let Ok(text) = std::fs::read_to_string(file) else { continue };
+            let Ok(mut r) = serde_json::from_str::<Receipt>(&text) else { continue };
+            r.seq = *n;
+            insert_run(&tx, &r)?;
+            out.receipts += 1;
+            if let Some(row) = reading_row_of(root, &r, &folders) {
+                tx.execute(
+                    "INSERT OR IGNORE INTO readings (seq, name, kind, target, spec_digest, index_key, word, stamp, page, record, reading_digest, job) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12)",
+                    params![row.seq, row.name, row.kind, row.target, row.spec_digest, row.index_key, row.word, row.stamp, row.page, row.record, row.reading_digest, row.job],
+                )
+                .map_err(jerr)?;
+                out.readings += 1;
+            }
+        }
+        let known: std::collections::BTreeSet<String> = {
+            let mut st = tx.prepare("SELECT id FROM jobs").map_err(jerr)?;
+            let ids = st.query_map([], |r| r.get::<_, String>(0)).map_err(jerr)?;
+            ids.collect::<rusqlite::Result<_>>().map_err(jerr)?
+        };
+        for (state, dir) in &folders {
+            let jf = custodian_kit::jobs::job_file(dir);
+            let Some(id) = jf.id.clone() else { continue };
+            if known.contains(&id) {
+                continue;
+            }
+            let closing: Option<custodian_kit::jobs::Closing> = std::fs::read_to_string(dir.join("closing.json")).ok().and_then(|t| serde_json::from_str(&t).ok());
+            let folder = dir.strip_prefix(root).unwrap_or(dir).to_string_lossy().into_owned();
+            tx.execute(
+                "INSERT OR IGNORE INTO jobs (id, name, kind, state, folder, opened_utc, closed_utc) VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7)",
+                params![id, jf.name.clone().unwrap_or_default(), jf.kind.clone().unwrap_or_else(|| "specs".into()), state, folder, closing.as_ref().and_then(|c| c.opened_utc.clone()), closing.as_ref().map(|c| c.closed_utc.clone())],
+            )
+            .map_err(jerr)?;
+            out.jobs += 1;
+        }
+        tx.commit().map_err(jerr)?;
+        let last: i64 = self.conn.query_row("SELECT COALESCE(MAX(seq), 0) FROM runs", [], |r| r.get(0)).map_err(jerr)?;
+        let at = self.seq.load();
+        if (last as u64) > at {
+            self.seq.add(last as u64 - at).map_err(jerr)?;
+        }
+        out.last = last;
+        Ok(out)
+    }
+}
+
+/// What a rebuild put back.
+#[derive(Debug, Clone, Copy, Default, PartialEq, Eq)]
+pub struct Rebuilt {
+    pub receipts: usize,
+    pub readings: usize,
+    pub jobs: usize,
+    /// The highest receipt number after it: where the sequence continues.
+    pub last: i64,
+}
+
+impl Rebuilt {
+    pub fn any(&self) -> bool {
+        self.receipts + self.jobs > 0
+    }
+}
+
+fn insert_run(tx: &rusqlite::Transaction<'_>, r: &Receipt) -> Result<()> {
+    tx.execute(
+        "INSERT OR IGNORE INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis, runner)
+         VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
+        params![
+            r.seq,
+            r.utc,
+            r.command,
+            r.name,
+            r.spec,
+            r.spec_hash,
+            r.index_key,
+            r.code_digest,
+            r.job,
+            r.reused_seq,
+            r.line,
+            r.exit_code,
+            r.accepted as i64,
+            r.disposition,
+            r.reason,
+            r.plan_id,
+            r.plan_digest,
+            r.operation_digest,
+            r.receipt_digest,
+            serde_json::to_string(&r.outputs).map_err(jerr)?,
+            r.millis,
+            r.runner,
+        ],
+    )
+    .map_err(jerr)?;
+    Ok(())
+}
+
+/// Every job folder under `state/jobs/`, with its state (`queued`, `running`, `done`).
+pub fn job_folders(jobs_root: &Path) -> Vec<(String, PathBuf)> {
+    let mut out = Vec::new();
+    for state in ["queued", "running", "done"] {
+        let dir = jobs_root.join(state);
+        let mut v: Vec<PathBuf> = std::fs::read_dir(&dir).map(|rd| rd.filter_map(|e| e.ok()).map(|e| e.path()).filter(|p| p.is_dir()).collect()).unwrap_or_default();
+        v.sort();
+        out.extend(v.into_iter().map(|p| (state.to_string(), p)));
+    }
+    out
+}
+
+/// The reading a receipt made, as the index keeps it: a run that read a spec (`reading`, or `run` before the kit's
+/// word), accepted, not a reuse, whose record is where the receipt says or in its job's folder.
+fn reading_row_of(root: &Path, r: &Receipt, folders: &[(String, PathBuf)]) -> Option<ReadingRow> {
+    if !(r.command == "reading" || r.command == "run") || r.reused_seq.is_some() || !r.accepted || r.spec_hash.is_none() {
+        return None;
+    }
+    let json = r.outputs.iter().find(|o| o.ends_with(".json"))?;
+    let page = r.outputs.iter().find(|o| o.ends_with(".md")).cloned().unwrap_or_else(|| json.replace(".json", ".md"));
+    let rel = |p: &Path| p.strip_prefix(root).unwrap_or(p).to_string_lossy().into_owned();
+    let found = if root.join(json).is_file() {
+        Some((json.clone(), page.clone()))
+    } else {
+        // the job's folder, wherever its state is now: readings/<name>/<file>
+        let name = Path::new(json).file_name()?.to_string_lossy().into_owned();
+        let job_first = folders.iter().filter(|(_, d)| r.job.as_deref().is_some_and(|j| custodian_kit::jobs::job_file(d).id.as_deref() == Some(j))).chain(folders.iter());
+        job_first.map(|(_, d)| d.join("readings").join(&r.name).join(&name)).find(|p| p.is_file()).map(|p| (rel(&p), rel(&p.with_extension("md"))))
+    }?;
+    let report = custodian_kit::reading::load(&root.join(&found.0)).ok()?;
+    let digest = custodian_kit::api::Reading { report: report.clone() }.digest();
+    Some(ReadingRow {
+        seq: r.seq,
+        name: r.name.clone(),
+        kind: report.kind.as_str().into(),
+        target: report.target.clone(),
+        spec_digest: r.spec_hash.clone().unwrap_or_default(),
+        index_key: r.index_key.clone().or_else(|| r.code_digest.clone()).unwrap_or_default(),
+        word: "none".into(),
+        stamp: report.stamp.clone(),
+        page: found.1,
+        record: found.0,
+        reading_digest: digest,
+        job: r.job.clone(),
+    })
 }
 
 #[cfg(test)]

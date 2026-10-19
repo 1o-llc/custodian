@@ -1,10 +1,10 @@
 //! `custodian mcp serve`: an MCP server (the official Rust SDK, rmcp) on stdin and stdout, whose tools are
 //! custodian's declared lines.
 //!
-//! The tool list is made, not written: each entry of [`TOOLS`] names a declared segment (and, for a leaf with
-//! actions, the words it fixes), and the tool's input schema is that leaf's [`Declared`] table read field by field
+//! The tool list is made, not written: each entry of [`TOOLS`] names a declared line by its path (`job start`), and
+//! the tool's input schema is that leaf's [`Declared`] table read field by field
 //! (a flag is a boolean, a `Vec` an array of strings, anything else a string; a word-set check is the schema's
-//! `enum`; `init_required` is `required`; the field's `///` is its description). Every declared segment is either
+//! `enum`; `init_required` is `required`; the field's `///` is its description). Every declared line is either
 //! a tool's or one of [`A_PERSONS`]; `tests::the_tool_list_is_the_declared_surface` holds that, and the golden
 //! `tests/golden/mcp_tools.json` is the list a host sees.
 //!
@@ -40,59 +40,69 @@ pub const INLINE_CAP: usize = 64 * 1024;
 /// The scheme of every resource.
 pub const SCHEME: &str = "custodian://";
 
-/// One tool: its name, the declared segment it runs, the words it fixes, the fields it leaves out, and what it adds
-/// to the declaration's doc.
+/// One tool: its name, the declared line it runs (its words after `custodian`), the fields it leaves out, and what
+/// it adds to the declaration's doc.
 #[derive(Debug, Clone, Copy)]
 pub struct ToolLine {
     pub name: &'static str,
-    pub segment: &'static str,
-    /// (field, word): a scalar field fixed is not the tool's; a `Vec` field's fixed word goes first.
-    pub fixed: &'static [(&'static str, &'static str)],
+    /// The line's path: `job start`.
+    pub path: &'static str,
     pub hidden: &'static [&'static str],
     pub says: &'static str,
 }
 
-const fn tool(name: &'static str, segment: &'static str, fixed: &'static [(&'static str, &'static str)], hidden: &'static [&'static str], says: &'static str) -> ToolLine {
-    ToolLine { name, segment, fixed, hidden, says }
+const fn tool(name: &'static str, path: &'static str, hidden: &'static [&'static str], says: &'static str) -> ToolLine {
+    ToolLine { name, path, hidden, says }
 }
 
-const JOB_ONLY_NAME: &[&str] = &["kind", "target", "intent", "again", "bundle"];
-const JOB_BRIEF: &[&str] = &["kind", "target", "intent", "again"];
-const COUNT_ONLY_ARGS: &[&str] = &["by", "tests", "again", "job"];
-
-/// The lines an agent runs, as tools. `job import` (a bundle made elsewhere) is a person's.
+/// The lines an agent runs, as tools. A person's lines are [`A_PERSONS`].
 pub const TOOLS: &[ToolLine] = &[
-    tool("run", "run", &[], &[], "A search on the line is `target` with `kind` (`reach`, `readers_of_env`, ...)."),
-    tool("list", "list", &[], &[], ""),
-    tool("diff", "diff", &[], &[], ""),
-    tool("job_start", "job", &[("action", "start")], &["bundle"], ""),
-    tool("job_close", "job", &[("action", "close")], JOB_ONLY_NAME, ""),
-    tool("job_brief", "job", &[("action", "brief")], JOB_BRIEF, "`bundle` packs the closed job as one bundle file too."),
-    tool("job_list", "job", &[("action", "list")], &["name", "kind", "target", "intent", "again", "bundle"], ""),
-    tool("test", "test", &[], &[], ""),
-    tool("check", "check", &[], &[], ""),
-    tool("annotate", "annotate", &[], &["apply"], "The plan only: placing it (`--apply`) is a person's."),
-    tool("features", "features", &[], &["apply"], "The plan only: gating (`--apply`) is a person's."),
-    tool("diagnostics_list", "diagnostics", &[("action", "list")], &[], "`arg` is a crate, every crate by default."),
-    tool("diagnostics_where", "diagnostics", &[("action", "where")], &[], "`arg` is the diagnostic code."),
-    tool("diagnostics_from", "diagnostics", &[("action", "from")], &[], "`arg` is the log file."),
-    tool("triage", "triage", &[], &[], ""),
-    tool("bundle", "bundle", &[], &[], ""),
-    tool("count", "count", &[], &[], "`args` is the one route, the workspace by default."),
-    tool("count_report", "count", &[("args", "report")], COUNT_ONLY_ARGS, "`args` names the two counts, A then B: a receipt number, a job id, a commit or a date."),
-    tool("count_history", "count", &[("args", "history")], COUNT_ONLY_ARGS, "`args` is the route, every route by default."),
+    tool("agent_brief", "agent brief", &[], "The first tool to call in a project."),
+    tool("run", "run", &[], "A search on the line is `target` with `kind` (`reach`, `readers_of_env`, `impact`, ...)."),
+    tool("list", "list", &[], ""),
+    tool("diff", "diff", &[], ""),
+    tool("job_start", "job start", &[], ""),
+    tool("job_close", "job close", &[], ""),
+    tool("job_brief", "job brief", &[], "`bundle` packs the closed job as one bundle file too."),
+    tool("job_list", "job list", &[], ""),
+    tool("job_verify", "job verify", &[], ""),
+    tool("test", "test run", &[], ""),
+    tool("test_report", "test report", &[], ""),
+    tool("check", "check", &[], ""),
+    tool("annotate", "annotate", &["apply"], "The plan only: placing it (`--apply`) is a person's."),
+    tool("features", "features", &["apply"], "The plan only: gating (`--apply`) is a person's."),
+    tool("diagnostics_list", "diagnostics list", &[], ""),
+    tool("diagnostics_where", "diagnostics where", &[], ""),
+    tool("diagnostics_from", "diagnostics from", &[], ""),
+    tool("triage", "triage", &[], ""),
+    tool("bundle", "bundle", &[], ""),
+    tool("count", "count of", &[], ""),
+    tool("count_report", "count report", &[], "`a` then `b`: a receipt number, a job id, a commit or a date."),
+    tool("count_history", "count history", &[], ""),
+    tool("preflight", "preflight", &[], "A change spec is decided here before it is made."),
+    tool("transform", "transform", &[], "The only way a bounded job's code is written."),
+    tool("plan_make", "plan make", &[], ""),
+    tool("plan_approve", "plan approve", &[], ""),
+    tool("plan_show", "plan show", &[], ""),
+    tool("decide", "decide", &[], "With no id, the open decisions; an answer is the person's, written as they gave it."),
+    tool("linkage_add", "linkage add", &[], ""),
+    tool("linkage_check", "linkage check", &[], ""),
 ];
 
 /// The lines that are a person's, never a tool, and why.
 pub const A_PERSONS: &[(&str, &str)] = &[
     ("init", "makes the folder custodian keeps"),
-    ("agent", "makes the folder in agent mode"),
+    ("agent init", "makes the folder in agent mode"),
+    ("agent guard", "the pre-edit hook's question"),
+    ("job import", "a bundle made elsewhere"),
     ("sweep", "offers routes for a person to declare"),
     ("serve", "the resident, in a person's terminal"),
     ("stop", "stops the resident"),
     ("watch", "follows events until stopped"),
-    ("self", "installs and removes the program"),
-    ("mcp", "this server"),
+    ("self install", "installs the program"),
+    ("self uninstall", "removes the program"),
+    ("self status", "the installed program"),
+    ("mcp serve", "this server"),
 ];
 
 /// The tool of a name.
@@ -100,32 +110,24 @@ pub fn tool_line(name: &str) -> Option<&'static ToolLine> {
     TOOLS.iter().find(|t| t.name == name)
 }
 
-/// A segment's declaration table.
-pub fn declared(segment: &str) -> Option<&'static Declared> {
-    surface::DECLARED.iter().find(|d| d.segment() == segment)
+/// A line's declaration table, by its path (`job start`).
+pub fn declared(path: &str) -> Option<&'static Declared> {
+    surface::DECLARED.iter().find(|(p, _)| p.trim_end() == path).map(|(_, d)| d)
 }
 
 impl ToolLine {
     fn declared(&self) -> &'static Declared {
-        declared(self.segment).unwrap_or_else(|| panic!("tool {} names segment {}, which is not declared", self.name, self.segment))
+        declared(self.path).unwrap_or_else(|| panic!("tool {} names line `{}`, which is not declared", self.name, self.path))
     }
 
-    fn fixed_of(&self, field: &str) -> Vec<&'static str> {
-        self.fixed.iter().filter(|(f, _)| *f == field).map(|(_, w)| *w).collect()
-    }
-
-    /// The fields the tool takes: the declaration's, less the hidden and the fixed scalars.
+    /// The fields the tool takes: the declaration's, less the hidden.
     pub fn fields(&self) -> Vec<&'static Field> {
-        self.declared().fields.iter().filter(|f| !self.hidden.contains(&f.name) && (f.ty == "Vec" || self.fixed_of(f.name).is_empty())).collect()
+        self.declared().fields.iter().filter(|f| !self.hidden.contains(&f.name)).collect()
     }
 
     /// The line the tool runs, as the command line writes it: `custodian count report`.
     pub fn line(&self) -> String {
-        let mut words = vec!["custodian".to_string(), self.segment.to_string()];
-        for f in self.declared().fields {
-            words.extend(self.fixed_of(f.name).into_iter().map(String::from));
-        }
-        words.join(" ")
+        format!("custodian {}", self.path)
     }
 
     /// The tool as a host lists it.
@@ -187,8 +189,8 @@ impl ToolLine {
         s
     }
 
-    /// The arguments, written as the declared line's words: the positionals in the declaration's order (a fixed word
-    /// first), then the options.
+    /// The arguments, written as the declared line's words: the path, the positionals in the declaration's order,
+    /// then the options (a `Vec` option once per item).
     pub fn words(&self, args: &JsonObject) -> Result<Vec<OsString>> {
         let fields = self.fields();
         if let Some(k) = args.keys().find(|k| !fields.iter().any(|f| f.name == k.as_str())) {
@@ -201,9 +203,14 @@ impl ToolLine {
                 other => Err(Code::ToolArguments.refuse(format!("{}.{} is a string, not {other}", self.name, f.name))),
             }
         };
+        let each = |f: &Field, v: &Value| -> Result<Vec<String>> {
+            match v {
+                Value::Array(items) if f.ty == "Vec" => items.iter().map(|i| one(f, i)).collect(),
+                v => Ok(vec![one(f, v)?]),
+            }
+        };
         let (mut positionals, mut options) = (Vec::new(), Vec::new());
         for f in self.declared().fields {
-            positionals.extend(self.fixed_of(f.name).into_iter().map(String::from));
             let v = match args.get(f.name) {
                 None | Some(Value::Null) => continue,
                 Some(v) => v,
@@ -215,20 +222,15 @@ impl ToolLine {
                     other => return Err(Code::ToolArguments.refuse(format!("{}.{} is a boolean, not {other}", self.name, f.name))),
                 },
                 Some(Written::Kv(k)) => {
-                    options.push(k.to_string());
-                    options.push(one(f, v)?);
-                }
-                _ => match v {
-                    Value::Array(items) if f.ty == "Vec" => {
-                        for item in items {
-                            positionals.push(one(f, item)?);
-                        }
+                    for item in each(f, v)? {
+                        options.push(k.to_string());
+                        options.push(item);
                     }
-                    v => positionals.push(one(f, v)?),
-                },
+                }
+                _ => positionals.extend(each(f, v)?),
             }
         }
-        let mut words = vec![OsString::from(self.segment)];
+        let mut words: Vec<OsString> = self.path.split(' ').map(OsString::from).collect();
         words.extend(positionals.into_iter().chain(options).map(OsString::from));
         Ok(words)
     }
@@ -516,26 +518,22 @@ pub fn serve_stdio(root: &Path) -> i32 {
 mod tests {
     use super::*;
 
-    /// Every declared segment is a tool's or a person's, never both; every name a tool fixes or hides is a field of
+    /// Every declared line is a tool's or a person's, never both; every name a tool hides is a field of
     /// its line; and the list a host sees is the golden one. A new subcommand fails here until it is declared one
     /// way or the other, and a changed declaration until the golden list is made again from it.
     #[test]
     fn the_tool_list_is_the_declared_surface() {
-        for (seg, _) in surface::USAGE {
-            let tool = TOOLS.iter().any(|t| t.segment == *seg);
-            let persons = A_PERSONS.iter().any(|(p, _)| p == seg);
-            assert!(tool != persons, "`custodian {seg}` is {}", if tool { "both a tool's and a person's" } else { "neither a tool's nor a person's: declare it in mcp::TOOLS or mcp::A_PERSONS" });
+        for (path, _) in surface::DECLARED {
+            let path = path.trim_end();
+            let tool = TOOLS.iter().any(|t| t.path == path);
+            let persons = A_PERSONS.iter().any(|(p, _)| *p == path);
+            assert!(tool != persons, "`custodian {path}` is {}", if tool { "both a tool's and a person's" } else { "neither a tool's nor a person's: declare it in mcp::TOOLS or mcp::A_PERSONS" });
         }
         assert!(A_PERSONS.iter().all(|(p, _)| declared(p).is_some()));
         for t in TOOLS {
             let d = t.declared();
-            for name in t.hidden.iter().chain(t.fixed.iter().map(|(f, _)| f)) {
-                assert!(d.field(name).is_some(), "{}: `{name}` is not a field of `custodian {}`", t.name, t.segment);
-            }
-            for (f, w) in t.fixed {
-                if let Some(words) = d.field(f).and_then(|f| f.words()) {
-                    assert!(words.contains(w), "{}: {f} = {w} is not one of {words:?}", t.name);
-                }
+            for name in t.hidden {
+                assert!(d.field(name).is_some(), "{}: `{name}` is not a field of `custodian {}`", t.name, t.path);
             }
         }
         let mut names: Vec<&str> = TOOLS.iter().map(|t| t.name).collect();
@@ -554,8 +552,12 @@ mod tests {
         assert_eq!(run.display(), "custodian run crate:core_lib --kind reach --again");
         let start = tool_line("job_start").unwrap().line_of(&args(json!({"name": "batch", "kind": "triage", "target": "CUST0004", "intent": "find it"}))).unwrap();
         assert_eq!(start.display(), "custodian job start batch --kind triage --target CUST0004 --intent find it");
-        let report = tool_line("count_report").unwrap().line_of(&args(json!({"args": [3, "9"]}))).unwrap();
+        let report = tool_line("count_report").unwrap().line_of(&args(json!({"a": 3, "b": "9"}))).unwrap();
         assert_eq!(report.display(), "custodian count report 3 9");
+        let start = tool_line("job_start").unwrap().line_of(&args(json!({"name": "b", "mode": "bounded", "verify": ["test:t", "check:golden"]}))).unwrap();
+        assert_eq!(start.display(), "custodian job start b --mode bounded --verify test:t --verify check:golden");
+        let decide = tool_line("decide").unwrap().line_of(&args(json!({"id": "q-1", "answer": "yes, the kit's", "why": "one key"}))).unwrap();
+        assert!(decide.display().starts_with("custodian decide q-1"), "{}", decide.display());
         let diff = tool_line("diff").unwrap().line_of(&args(json!({"spec": "env", "from": 3}))).unwrap();
         assert_eq!(diff.display(), "custodian diff env --from 3");
         // a plan-only tool has no --apply, and a bad word is the declaration's own refusal

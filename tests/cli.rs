@@ -43,7 +43,9 @@ fn the_same_search_is_reused_until_the_code_moves_or_again() {
     assert!(first.contains("decided (same_search): is there a reading of this spec over this code already? no: read"), "{first}");
     let n = seq_of(&first);
     let r = receipt(&d, n);
-    assert_eq!(r["spec_hash"].as_str().unwrap().len(), 64);
+    // the kit's same-search key (decision (a)): the spec's hash, prefixed
+    let spec_hash = r["spec_hash"].as_str().unwrap();
+    assert!(spec_hash.starts_with("sha256:") && spec_hash.len() == 71, "{r}");
     assert!(r["index_key"].as_str().unwrap().starts_with("sha256:") || r["index_key"].as_str().unwrap().len() >= 64, "{r}");
     let page = r["outputs"][0].as_str().unwrap().to_string();
     assert!(page.starts_with(".custodian/data/readings/env_socket/") && page.ends_with(".md"), "{page}");
@@ -189,7 +191,9 @@ fn a_template_job_runs_through_the_kit_from_start_to_close() {
     assert_eq!(first, ["lines touched: job: +4 −0 across 1 files in 1 crates (*)", "revision: base of task tri"], "{brief}");
     assert!(brief.contains("task history: tri (1 revisions)"), "{brief}");
     let list = ok(&d, &["job", "list"], 0);
-    assert!(list.contains("## done (1)") && list.contains("[accepted, base]"), "{list}");
+    // no verification was declared: the outcome was never known, so the result is pending, not accepted
+    assert!(closed.contains("result: pending"), "{closed}");
+    assert!(list.contains("## done (1)") && list.contains("[pending, base]"), "{list}");
 
     // the same job again (a new folder, its job file naming the job): the next revision of the same task
     let q = d.join(".custodian/state/jobs/queued/tri-again");

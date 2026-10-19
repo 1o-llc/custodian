@@ -178,7 +178,7 @@ pub fn watch(ctx: &mut Ctx, l: &Watch) -> Result<Ran> {
         if !l.follow {
             break;
         }
-        std::thread::sleep(std::time::Duration::from_millis(500));
+        std::thread::sleep(crate::timing::WATCH_POLL);
     }
     ran.say(format!("watched the journal's events through the `{}` observer: {shown} shown, up to event {since}", level.word()));
     Ok(ran)

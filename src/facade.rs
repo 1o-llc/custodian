@@ -53,6 +53,9 @@ pub struct Ran {
     pub reading: Option<ReadingRow>,
     /// An install receipt: (action, bin, destination, sha256, the installation receipt's JSON).
     pub install: Option<(String, String, String, String, String)>,
+    /// A line that did its work and is still refused (a bounded job closed with lines no transform covers): the
+    /// code it is refused with, its output kept.
+    pub refusal: Option<Refusal>,
 }
 
 impl Ran {
@@ -138,7 +141,14 @@ impl Ctx {
     pub fn at(start: &Path) -> Result<Ctx> {
         let mode = Mode::find(start)?;
         let journal = match &mode {
-            Mode::Journaled(p) => Some(Journal::open(&p.layout.path::<layout::Journal>(&[])?)?),
+            Mode::Journaled(p) => {
+                let mut j = Journal::open(&p.layout.path::<layout::Journal>(&[])?)?;
+                // a fresh checkout: the journal rebuilt from the receipts and job folders it carries
+                let receipts = p.layout.dir::<layout::ReceiptFile>(&[("seq", "1")])?;
+                let jobs = p.layout.jobs_dir("x")?.parent().map(Path::to_path_buf).unwrap_or_default();
+                j.rebuild_from(p.root(), &receipts, &jobs)?;
+                Some(j)
+            }
             Mode::Free { .. } => None,
         };
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("custodian"));
@@ -216,7 +226,7 @@ impl Ctx {
 /// What ran, in custodian_kit's words for a receipt's `command` (`reading`, `test`, `check`, `git`, `gate`,
 /// `job-close`): the journal's one vocabulary, which the kit's job close reads to list a job's readings, its tests
 /// and its checks. A program's line whose kind the kit names is written with the kit's word.
-pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("code-passenger.gate", "gate")];
+pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("code-passenger.gate", "gate"), ("code-passenger.transform", "transform")];
 
 /// The kit's word for a line that answered a spec, read or reused (`custodian run`, `count`, `diagnostics`,
 /// `bundle`, `sweep`).
@@ -249,7 +259,10 @@ pub fn execute(ctx: &mut Ctx, line: &Line, handler: impl FnOnce(&mut Ctx, &Line)
         Ok(()) => handler(ctx, line),
     };
     let (ran, refusal) = match ran {
-        Ok(r) => (r, None),
+        Ok(mut r) => {
+            let refused = r.refusal.take();
+            (r, refused)
+        }
         Err(e) => (Ran::named(line.segment()), Some(e)),
     };
     let code = if refusal.is_some() { 2 } else { ran.code };

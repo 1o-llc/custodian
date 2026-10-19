@@ -8,7 +8,7 @@ use crate::digest;
 use crate::facade::{Ctx, Ran};
 use crate::journal::ReadingRow;
 use crate::layout::{self, write_whole};
-use custodian_kit::api::{IndexKey, ReadingKind, ReadingReport, ReadingSpec, Resolving};
+use custodian_kit::api::{ReadingKind, ReadingReport, ReadingSpec, Resolving};
 use std::path::{Path, PathBuf};
 
 /// Where a spec came from.
@@ -108,7 +108,15 @@ pub struct Ask {
     pub word: String,
 }
 
-/// The digest the same-search key takes of a spec and its option word.
+/// The one same-search key, custodian_kit's (`api::SearchKey`: the spec's hash and klepto's fingerprint of the
+/// code its scope reads). A bundle's filters are part of its spec (`ReadingSpec.bundle`), so they are part of the
+/// one hash; there is no second key of the command line's own.
+pub fn search_key(ctx: &Ctx, spec: &ReadingSpec) -> Result<custodian_kit::api::SearchKey> {
+    custodian_kit::api::SearchKey::of(ctx.root(), spec)
+}
+
+/// The digest of a spec and an option word as the command line took it before the one key (kept for a reading
+/// made before: its row still carries it).
 pub fn spec_digest(spec: &ReadingSpec, word: &str) -> String {
     digest::of("spec", &(spec, word))
 }
@@ -120,13 +128,13 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
     ran.job = ask.job.clone();
     ran.spec = from.file().map(|p| ctx.rel(p));
     let word = if ask.word.is_empty() { "none".to_string() } else { ask.word.clone() };
-    let sd = spec_digest(spec, &word);
-    let key = IndexKey::of_root(ctx.root(), &spec.scope)?.0;
+    let k = search_key(ctx, spec)?;
+    let (sd, key) = (k.spec_hash.clone(), k.index_key.0.clone());
     ran.spec_digest = Some(sd.clone());
     ran.index_key = Some(key.clone());
-    ran.code_digest = Some(key.clone());
+    ran.code_digest = Some(k.code_digest.clone());
     if let Some(journal) = ctx.journal.as_ref() {
-        let (decided, prev) = decide::same_search(journal, &sd, &key, ask.again)?;
+        let (decided, prev) = decide::same_search(journal, &sd, &k.code_digest, ask.again)?;
         ran.say(decided.said());
         if let (Some((row, _)), false) = (prev, ask.again) {
             ran.reused_seq = Some(row.seq);
@@ -261,18 +269,36 @@ pub fn list(ctx: &mut Ctx) -> Result<Ran> {
     };
     let queued = names(layout.dir::<layout::QueuedSpec>(&[("name", "x")])?);
     let done = names(layout.dir::<layout::DoneSpec>(&[("name", "x")])?);
-    s.push_str(&format!("\n## specs\n\n- queued: {}\n- done: {}\n", list_or_none(&queued), list_or_none(&done)));
+    // a job's specs are specs too: the folder's own and the ones its steps wrote
+    let jobs_root = layout.jobs_dir("x")?.parent().map(Path::to_path_buf).unwrap_or_default();
+    let mut in_jobs: Vec<(String, usize)> = Vec::new();
+    for (_, dir) in crate::journal::job_folders(&jobs_root) {
+        let n = custodian_kit::jobs::job_specs(&dir).len() + custodian_kit::jobs::job_specs(&dir.join("steps")).len();
+        if n > 0 {
+            in_jobs.push((dir.file_name().map(|f| f.to_string_lossy().into_owned()).unwrap_or_default(), n));
+        }
+    }
+    let job_specs: usize = in_jobs.iter().map(|(_, n)| n).sum();
+    s.push_str(&format!(
+        "\n## specs ({} in all)\n\n- queued: {}\n- done: {}\n- in jobs: {}\n",
+        queued.len() + done.len() + job_specs,
+        list_or_none(&queued),
+        list_or_none(&done),
+        if in_jobs.is_empty() { "none".to_string() } else { in_jobs.iter().map(|(j, n)| format!("{j} ({n})")).collect::<Vec<_>>().join(", ") }
+    ));
     let readings = journal.readings()?;
     let receipts = journal.receipts()?;
-    s.push_str("\n## readings (the latest of each spec)\n\n| spec | kind | target | latest | runs | reuses | page |\n|---|---|---|---|---|---|---|\n");
+    s.push_str("\n## readings (the latest of each spec, in a job or not)\n\n| spec | kind | target | latest | runs | reuses | job | page |\n|---|---|---|---|---|---|---|---|\n");
     let mut by: std::collections::BTreeMap<&str, Vec<&ReadingRow>> = Default::default();
     for r in &readings {
         by.entry(r.name.as_str()).or_default().push(r);
     }
+    let job_names: std::collections::BTreeMap<String, String> = journal.jobs()?.into_iter().map(|j| (j.id, j.name)).collect();
     for (name, rows) in &by {
         let last = rows.last().copied().unwrap_or(rows[0]);
         let reuses = receipts.iter().filter(|r| r.reused_seq.is_some_and(|n| rows.iter().any(|x| x.seq == n))).count();
-        s.push_str(&format!("| {name} | {} | `{}` | #{} {} | {} | {reuses} | `{}` |\n", last.kind, last.target, last.seq, last.stamp, rows.len(), last.page));
+        let job = last.job.as_ref().map(|j| job_names.get(j).map(|n| format!("{n} ({j})")).unwrap_or_else(|| j.clone())).unwrap_or_else(|| "-".into());
+        s.push_str(&format!("| {name} | {} | `{}` | #{} {} | {} | {reuses} | {job} | `{}` |\n", last.kind, last.target, last.seq, last.stamp, rows.len(), last.page));
     }
     let jobs = journal.jobs()?;
     s.push_str("\n## jobs\n\n");

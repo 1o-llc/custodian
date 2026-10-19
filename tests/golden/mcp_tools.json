@@ -1,7 +1,21 @@
 [
   {
+    "name": "agent_brief",
+    "description": "Runs `custodian agent brief`, a declared line; every run leaves a receipt. The first tool to call in a project.\n\nThe first line an agent runs in a project: the mode, the open jobs and what they wait on, the decisions to make first, the latest reading of each spec and whether the code moved since, the test lines' last results, and the exact next lines to run.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "head": {
+          "description": "Only the head: the mode, the open job, the decisions and the next line (what the pre-edit hook prints). (`--head`)",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
     "name": "run",
-    "description": "Runs `custodian run`, a declared line; every run leaves a receipt. A search on the line is `target` with `kind` (`reach`, `readers_of_env`, ...).\n\n`custodian run [SPEC|ROUTE] [--kind KIND] [--job ID] [--again]`: one spec (a file, or a queued or done spec's name), a search on the line (`--kind` and a target), or every queued spec and job folder in order.",
+    "description": "Runs `custodian run`, a declared line; every run leaves a receipt. A search on the line is `target` with `kind` (`reach`, `readers_of_env`, `impact`, ...).\n\nOne spec (a file, or a queued or done spec's name), a search on the line (`--kind` and a target), or every queued spec and job folder in order.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -32,7 +46,9 @@
             "diagnostics",
             "count",
             "bundle",
-            "sweep"
+            "sweep",
+            "impact",
+            "linkage"
           ],
           "type": "string"
         },
@@ -46,7 +62,7 @@
   },
   {
     "name": "list",
-    "description": "Runs `custodian list`, a declared line; every run leaves a receipt.\n\n`custodian list`: the inventory, rendered from the journal.",
+    "description": "Runs `custodian list`, a declared line; every run leaves a receipt.\n\nThe inventory, rendered from the journal (rebuilt from the receipts a checkout carries).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -55,7 +71,7 @@
   },
   {
     "name": "diff",
-    "description": "Runs `custodian diff`, a declared line; every run leaves a receipt.\n\n`custodian diff SPEC [--from SEQ] [--to SEQ]`: what moved between two readings of one spec (the last two by default).",
+    "description": "Runs `custodian diff`, a declared line; every run leaves a receipt.\n\nWhat moved between two readings of one spec (the last two by default).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -80,7 +96,7 @@
   },
   {
     "name": "job_start",
-    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
+    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt.\n\nOpens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -101,13 +117,28 @@
           ],
           "type": "string"
         },
+        "mode": {
+          "description": "`bounded` (the agent writes no code: change specs only) or `unbounded` (help, nothing refused). (`--mode`)",
+          "enum": [
+            "bounded",
+            "unbounded"
+          ],
+          "type": "string"
+        },
         "name": {
-          "description": "The job's name (start), its id (close, brief; the running or last one by default), or a bundle file (import). (a word on the line)",
+          "description": "The job's name (a queued folder, or a new one). (a word on the line)",
           "type": "string"
         },
         "target": {
-          "description": "What a template job works on (a triage's code, a route). (`--target`)",
+          "description": "What the job works on: a route or an item (its target is known when it resolves). (`--target`)",
           "type": "string"
+        },
+        "verify": {
+          "description": "What done looks like: `test:<name>`, `reading:<spec>` (a reading that must change), `check:<which>`. (`--verify`)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
         }
       },
       "type": "object"
@@ -115,12 +146,12 @@
   },
   {
     "name": "job_close",
-    "description": "Runs `custodian job close`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
+    "description": "Runs `custodian job close`, a declared line; every run leaves a receipt.\n\nCloses the running job: its closing receipt, its task history's result (`accepted` only on evidence), its folder moved to done; a bounded job with lines no transform covers is refused, `rejected`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "name": {
-          "description": "The job's name (start), its id (close, brief; the running or last one by default), or a bundle file (import). (a word on the line)",
+          "description": "The job's id (the running one by default). (a word on the line)",
           "type": "string"
         }
       },
@@ -129,16 +160,16 @@
   },
   {
     "name": "job_brief",
-    "description": "Runs `custodian job brief`, a declared line; every run leaves a receipt. `bundle` packs the closed job as one bundle file too.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
+    "description": "Runs `custodian job brief`, a declared line; every run leaves a receipt. `bundle` packs the closed job as one bundle file too.\n\nThe facts of a job: open decisions first, the result, the mode and when its target and outcome became known, the readings, the lines touched; `--bundle` packs a closed job as one file too.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "bundle": {
-          "description": "With brief: the closed job packed as one bundle too (its receipts, readings and the windows around its sites, secret items held redacted), as `custodian bundle <job>` makes it. (`--bundle`)",
+          "description": "The closed job packed as one bundle too (its receipts, readings and the windows around its sites, secret items held redacted), as `custodian bundle <job>` makes it. (`--bundle`)",
           "type": "boolean"
         },
         "name": {
-          "description": "The job's name (start), its id (close, brief; the running or last one by default), or a bundle file (import). (a word on the line)",
+          "description": "The job's id or name (the last closed one by default). (a word on the line)",
           "type": "string"
         }
       },
@@ -147,7 +178,7 @@
   },
   {
     "name": "job_list",
-    "description": "Runs `custodian job list`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
+    "description": "Runs `custodian job list`, a declared line; every run leaves a receipt.\n\nEvery job folder by state, each with its task state (proposed, ready, running, blocked, paused, verifying, completed, failed).",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -155,18 +186,32 @@
     }
   },
   {
-    "name": "test",
-    "description": "Runs `custodian test`, a declared line; every run leaves a receipt.\n\n`custodian test [report] [--affected | --all] [--observe failed|progress|all] [--ref REF] [--job ID]`.",
+    "name": "job_verify",
+    "description": "Runs `custodian job verify`, a declared line; every run leaves a receipt.\n\nDeclares what done looks like for the running job; the closing receipt records when the outcome became known.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "action": {
-          "description": "`report`: the last runs' outcomes, nothing run. (a word on the line)",
-          "enum": [
-            "report"
-          ],
+        "job": {
+          "description": "The job (the running one by default). (`--job`)",
           "type": "string"
         },
+        "line": {
+          "description": "`test:<name>`, `reading:<spec>` (a reading that must change), `check:<which>`. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "line"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "test",
+    "description": "Runs `custodian test run`, a declared line; every run leaves a receipt.\n\nThe tests the change since `--ref` reaches (or every test line), each cargo line with its receipt and times.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
         "affected": {
           "description": "Only the tests the change since `git_ref` reaches. (`--affected`)",
           "type": "boolean"
@@ -197,8 +242,17 @@
     }
   },
   {
+    "name": "test_report",
+    "description": "Runs `custodian test report`, a declared line; every run leaves a receipt.\n\nThe last runs' outcomes: the slowest lines, the flakiest tests, maintenance's timed report; nothing run.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {},
+      "type": "object"
+    }
+  },
+  {
     "name": "check",
-    "description": "Runs `custodian check`, a declared line; every run leaves a receipt.\n\n`custodian check sensitivity|mechanism|boundary|supersedes|reads_env|golden|all [--job ID]`.",
+    "description": "Runs `custodian check`, a declared line; every run leaves a receipt.\n\nA maintenance check, through maintenance's own line, its JSON kept.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -228,7 +282,7 @@
   },
   {
     "name": "annotate",
-    "description": "Runs `custodian annotate`, a declared line; every run leaves a receipt. The plan only: placing it (`--apply`) is a person's.\n\n`custodian annotate [--from CHECK_JSON] [--apply]`: the maintenance attributes the receipts call for, as a plan.",
+    "description": "Runs `custodian annotate`, a declared line; every run leaves a receipt. The plan only: placing it (`--apply`) is a person's.\n\nThe maintenance attributes the receipts call for, as a plan.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -242,7 +296,7 @@
   },
   {
     "name": "features",
-    "description": "Runs `custodian features`, a declared line; every run leaves a receipt. The plan only: gating (`--apply`) is a person's.\n\n`custodian features [--apply]`: code_passenger's feature-gating spec from the eligibility reading.",
+    "description": "Runs `custodian features`, a declared line; every run leaves a receipt. The plan only: gating (`--apply`) is a person's.\n\ncode_passenger's feature-gating spec from the eligibility reading.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -251,12 +305,12 @@
   },
   {
     "name": "diagnostics_list",
-    "description": "Runs `custodian diagnostics list`, a declared line; every run leaves a receipt. `arg` is a crate, every crate by default.\n\n`custodian diagnostics list [CRATE] | where CODE | from LOGFILE`.",
+    "description": "Runs `custodian diagnostics list`, a declared line; every run leaves a receipt.\n\nEvery liaise code table: each code's meaning and declaration, and the sites raising it.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "arg": {
-          "description": "A crate (list), a diagnostic code (where), or a log file, `-` for stdin (from). (a word on the line)",
+        "krate": {
+          "description": "A crate (every crate by default). (a word on the line)",
           "type": "string"
         }
       },
@@ -265,35 +319,41 @@
   },
   {
     "name": "diagnostics_where",
-    "description": "Runs `custodian diagnostics where`, a declared line; every run leaves a receipt. `arg` is the diagnostic code.\n\n`custodian diagnostics list [CRATE] | where CODE | from LOGFILE`.",
+    "description": "Runs `custodian diagnostics where`, a declared line; every run leaves a receipt.\n\nEvery site raising a diagnostic code, with its function.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "arg": {
-          "description": "A crate (list), a diagnostic code (where), or a log file, `-` for stdin (from). (a word on the line)",
+        "code": {
+          "description": "The diagnostic code. (a word on the line)",
           "type": "string"
         }
       },
+      "required": [
+        "code"
+      ],
       "type": "object"
     }
   },
   {
     "name": "diagnostics_from",
-    "description": "Runs `custodian diagnostics from`, a declared line; every run leaves a receipt. `arg` is the log file.\n\n`custodian diagnostics list [CRATE] | where CODE | from LOGFILE`.",
+    "description": "Runs `custodian diagnostics from`, a declared line; every run leaves a receipt.\n\nEach code a log names: its declaration and its sites.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "arg": {
-          "description": "A crate (list), a diagnostic code (where), or a log file, `-` for stdin (from). (a word on the line)",
+        "log": {
+          "description": "The log file, `-` for stdin. (a word on the line)",
           "type": "string"
         }
       },
+      "required": [
+        "log"
+      ],
       "type": "object"
     }
   },
   {
     "name": "triage",
-    "description": "Runs `custodian triage`, a declared line; every run leaves a receipt.\n\n`custodian triage CODE|@LOGFILE`: the built-in triage job, started and closed.",
+    "description": "Runs `custodian triage`, a declared line; every run leaves a receipt.\n\nThe built-in triage job, started and closed.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -310,7 +370,7 @@
   },
   {
     "name": "bundle",
-    "description": "Runs `custodian bundle`, a declared line; every run leaves a receipt.\n\n`custodian bundle ROUTE|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src] [--redact-level secret] [--reveal]`.",
+    "description": "Runs `custodian bundle`, a declared line; every run leaves a receipt.\n\nA route, a declared set or a job as one annotated file, its filters a checked word.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -365,20 +425,13 @@
   },
   {
     "name": "count",
-    "description": "Runs `custodian count`, a declared line; every run leaves a receipt. `args` is the one route, the workspace by default.\n\n`custodian count [ROUTE] [--by crate|language] [--tests] [--again]`, `count report A B`, `count history [ROUTE]`: files, lines, code, comments and blanks (custodian_kit's `count` reading kind, on tokei), per crate or language, the tests' share; two counts compared; every count of a route.",
+    "description": "Runs `custodian count of`, a declared line; every run leaves a receipt.\n\nFiles, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "again": {
           "description": "Count again even when the code has not moved. (`--again`)",
           "type": "boolean"
-        },
-        "args": {
-          "description": "A route; or `report A B`; or `history [ROUTE]`. (a word on the line)",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
         },
         "by": {
           "description": "The table's rows. (`--by`)",
@@ -392,6 +445,10 @@
           "description": "The job the count is part of (a job's own counts at open and close). (`--job`)",
           "type": "string"
         },
+        "route": {
+          "description": "The route (the workspace by default). (a word on the line)",
+          "type": "string"
+        },
         "tests": {
           "description": "The tests' share. (`--tests`)",
           "type": "boolean"
@@ -402,33 +459,245 @@
   },
   {
     "name": "count_report",
-    "description": "Runs `custodian count report`, a declared line; every run leaves a receipt. `args` names the two counts, A then B: a receipt number, a job id, a commit or a date.\n\n`custodian count [ROUTE] [--by crate|language] [--tests] [--again]`, `count report A B`, `count history [ROUTE]`: files, lines, code, comments and blanks (custodian_kit's `count` reading kind, on tokei), per crate or language, the tests' share; two counts compared; every count of a route.",
+    "description": "Runs `custodian count report`, a declared line; every run leaves a receipt. `a` then `b`: a receipt number, a job id, a commit or a date.\n\nTwo counts compared: per crate and language, files added and removed, both digests.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "args": {
-          "description": "A route; or `report A B`; or `history [ROUTE]`. (a word on the line)",
-          "items": {
-            "type": "string"
-          },
-          "type": "array"
+        "a": {
+          "description": "The earlier count: a receipt number, a job id (`job:open`, `job:close`), a commit or a date. (a word on the line)",
+          "type": "string"
+        },
+        "b": {
+          "description": "The later count. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "a",
+        "b"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "count_history",
+    "description": "Runs `custodian count history`, a declared line; every run leaves a receipt.\n\nEvery count of a route (of every route by default).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "description": "The route. (a word on the line)",
+          "type": "string"
         }
       },
       "type": "object"
     }
   },
   {
-    "name": "count_history",
-    "description": "Runs `custodian count history`, a declared line; every run leaves a receipt. `args` is the route, every route by default.\n\n`custodian count [ROUTE] [--by crate|language] [--tests] [--again]`, `count report A B`, `count history [ROUTE]`: files, lines, code, comments and blanks (custodian_kit's `count` reading kind, on tokei), per crate or language, the tests' share; two counts compared; every count of a route.",
+    "name": "preflight",
+    "description": "Runs `custodian preflight`, a declared line; every run leaves a receipt. A change spec is decided here before it is made.\n\nWhat a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
-        "args": {
-          "description": "A route; or `report A B`; or `history [ROUTE]`. (a word on the line)",
+        "job": {
+          "description": "The job it is part of (the running one by default). (`--job`)",
+          "type": "string"
+        },
+        "spec": {
+          "description": "The change spec (`v1.<name>.1o.change`, or its TOML twin). (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "transform",
+    "description": "Runs `custodian transform`, a declared line; every run leaves a receipt. The only way a bounded job's code is written.\n\nA change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on a scratch copy, written with `--write`, its record kept; or a record's files put back (`--revert`).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "The job it is part of (the running one by default). (`--job`)",
+          "type": "string"
+        },
+        "revert": {
+          "description": "A transform record whose files are put back. (`--revert`)",
+          "type": "string"
+        },
+        "spec": {
+          "description": "The change spec. (a word on the line)",
+          "type": "string"
+        },
+        "write": {
+          "description": "Write it (else prove it on a scratch copy only). (`--write`)",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "plan_make",
+    "description": "Runs `custodian plan make`, a declared line; every run leaves a receipt.\n\nAn intent's plan: where the work is, what can be reused, what is new, the top candidates' impact and the cost, the decisions to make before any step, and the steps proposed; nothing written.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "intent": {
+          "description": "The intent, in the asker's words. (a word on the line)",
+          "type": "string"
+        },
+        "name": {
+          "description": "The plan's name (from the intent's words by default). (`--name`)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "intent"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "plan_approve",
+    "description": "Runs `custodian plan approve`, a declared line; every run leaves a receipt.\n\nA plan's step written as a change spec (`data/specs/changes/`), proposed until its preflight authorizes it.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "operation": {
+          "description": "The operation (the step's first by default). (`--operation`)",
+          "enum": [
+            "make_struct",
+            "make_enum",
+            "make_impl",
+            "add_method",
+            "make_fn",
+            "add_field",
+            "add_variant",
+            "add_derive",
+            "add_attribute",
+            "add_module",
+            "add_dependency",
+            "add_test",
+            "add_constructor",
+            "add_trait_impl",
+            "change_signature",
+            "rename",
+            "move",
+            "extract",
+            "gate",
+            "anchor"
+          ],
+          "type": "string"
+        },
+        "plan": {
+          "description": "The plan's name. (a word on the line)",
+          "type": "string"
+        },
+        "step": {
+          "description": "The step's number. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan",
+        "step"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "plan_show",
+    "description": "Runs `custodian plan show`, a declared line; every run leaves a receipt.\n\nA plan's page.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "plan": {
+          "description": "The plan's name. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "plan"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "decide",
+    "description": "Runs `custodian decide`, a declared line; every run leaves a receipt. With no id, the open decisions; an answer is the person's, written as they gave it.\n\nThe decisions still open, asked together; with an id and an answer, one decision made (its reason with it), kept in the task history so it is never asked again.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "answer": {
+          "description": "The answer. (a word on the line)",
+          "type": "string"
+        },
+        "id": {
+          "description": "The decision's id (`q-…`). (a word on the line)",
+          "type": "string"
+        },
+        "why": {
+          "description": "Why: the reasoning kept with the decision. (`--why`)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "linkage_add",
+    "description": "Runs `custodian linkage add`, a declared line; every run leaves a receipt.\n\nA linkage record: why declarations are bound together, each bound declaration resolved now.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "bind": {
+          "description": "A declaration bound: an item path, a crate:/decl: route, dep:<crate>. (`--bind`)",
           "items": {
             "type": "string"
           },
           "type": "array"
+        },
+        "kind": {
+          "description": "Why they are bound: responsibility, invariant, connected, compatibility, synchronized, guarded, semantics. (`--kind`)",
+          "enum": [
+            "responsibility",
+            "invariant",
+            "connected",
+            "compatibility",
+            "synchronized",
+            "guarded",
+            "semantics"
+          ],
+          "type": "string"
+        },
+        "name": {
+          "description": "The record's name. (a word on the line)",
+          "type": "string"
+        },
+        "why": {
+          "description": "The reason, in the author's words. (`--why`)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "name"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "linkage_check",
+    "description": "Runs `custodian linkage check`, a declared line; every run leaves a receipt.\n\nThe linkage records naming a target (every record by default), each checked against the code: stale, to review, or holding; and the comment anchors no record backs.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "target": {
+          "description": "An item, a route or a record's name. (a word on the line)",
+          "type": "string"
         }
       },
       "type": "object"

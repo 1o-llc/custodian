@@ -13,7 +13,9 @@
 
 #![deny(unsafe_code)]
 
+pub mod agent;
 pub mod bundling;
+pub mod changes;
 pub mod cli;
 pub mod codes;
 pub mod counting;
@@ -36,4 +38,5 @@ pub mod runtime;
 pub mod serve;
 pub mod surface;
 pub mod testing;
+pub mod timing;
 pub mod words;

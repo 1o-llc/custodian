@@ -19,6 +19,50 @@ use std::sync::Mutex;
 use waker_protocol::{derive_protocol_task_vtable, CheckpointReason, CheckpointStore, ProtocolTask, RetentionPolicy, TaskId, TaskPoll, TaskPolicy, TaskState, WakeReason, WakerProtocol};
 use waker_tables::VTableKey;
 
+/// The project's job lock, in its `.custodian/` folder: held while a job starts, while it closes and while the
+/// queue runs, so two processes never open or close jobs at once. One job open at a time was a decision the start
+/// read; the lock makes the start, the close and the queue each one critical section. `init` makes the file
+/// (xccute's `LockFile` never makes one).
+pub const JOB_LOCK: &str = "jobs.lock";
+
+thread_local! {
+    /// This thread holds the job lock already (the queue's runner starts and closes jobs inside its own hold).
+    static HOLDING: std::cell::Cell<bool> = const { std::cell::Cell::new(false) };
+}
+
+/// `f` run holding the project's job lock, through xccute's `Hold` over a `LockFile`: the lock tried for
+/// [`crate::timing::JOB_LOCK_TIMEOUT`], [`crate::timing::JOB_LOCK_BACKOFF`] apart; held while `f` runs; let go
+/// after, whether it succeeded or failed. `line` is the declared line it holds for (`custodian job start`), the hold's
+/// one step. Free mode has no lock.
+pub fn under_job_lock<T>(ctx: &mut Ctx, line: &crate::surface::Line, f: impl FnOnce(&mut Ctx) -> Result<T>) -> Result<T> {
+    if HOLDING.with(|h| h.get()) || ctx.mode.project().is_none() {
+        return f(ctx);
+    }
+    let lock = ctx.layout()?.folder().join(JOB_LOCK);
+    if !lock.exists() {
+        crate::layout::write_whole(&lock, b"")?;
+    }
+    let chain = xccute::LineChain::new(line.path()).then(line.path(), &line.preview(), xccute::ExitStatusPolicy::new());
+    let hold = xccute::Hold::new(line.path(), xccute::LockFile::new(&lock), chain).timeout(crate::timing::JOB_LOCK_TIMEOUT).retry_backoff(crate::timing::JOB_LOCK_BACKOFF);
+    let mut f = Some(f);
+    let mut out: Option<Result<T>> = None;
+    let walked = hold
+        .walk(&mut |_op| {
+            let f = f.take()?;
+            HOLDING.with(|h| h.set(true));
+            let r = f(ctx);
+            HOLDING.with(|h| h.set(false));
+            let code = if r.is_ok() { 0 } else { 2 };
+            out = Some(r);
+            Some(code)
+        })
+        .map_err(|e| Code::JobLockHeld.refuse(e))?;
+    match (out, &walked.state) {
+        (Some(r), _) => r,
+        (None, _) => Err(Code::JobLockHeld.refuse(hold.decision(&walked).reason)),
+    }
+}
+
 /// A queued job as the runner holds it, and as its checkpoint is saved.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
 pub struct JobState {

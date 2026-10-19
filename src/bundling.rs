@@ -15,7 +15,7 @@ use crate::facade::{Ctx, Ran};
 use crate::journal::ReadingRow;
 use crate::readings;
 use crate::surface::{s, so, Bundle};
-use custodian_kit::api::{FiltersWord, IndexKey, Resolving};
+use custodian_kit::api::{FiltersWord, Resolving};
 
 /// The word a line's filters make, checked: secret items redacted unless `--reveal`.
 pub fn word_of(l: &Bundle) -> Result<FiltersWord> {
@@ -61,14 +61,18 @@ pub fn bundle(ctx: &mut Ctx, l: &Bundle) -> Result<Ran> {
         return bundle_job(ctx, &row, word, &text);
     }
     let mut ran = Ran::named(format!("bundle {target}"));
-    let spec = readings::inline_spec("bundle", &target)?;
-    let sd = readings::spec_digest(&spec, &text);
-    let key = IndexKey::of_root(ctx.root(), &spec.scope)?.0;
+    // the filters are part of the spec, so the one same-search key covers them
+    let mut spec = readings::inline_spec("bundle", &target)?;
+    spec.bundle.filters = word.names().into_iter().map(str::to_string).collect();
+    spec.bundle.no_features = so(&l.no_feature).into_iter().collect();
+    let k = readings::search_key(ctx, &spec)?;
+    let (sd, key) = (k.spec_hash.clone(), k.index_key.0.clone());
     ran.spec_digest = Some(sd.clone());
     ran.index_key = Some(key.clone());
+    ran.code_digest = Some(k.code_digest.clone());
     ran.say(format!("filters: {text} (word {:#04x}, checked by flaga_solver)", word.raw()));
     if let Some(j) = ctx.journal.as_ref() {
-        let (d, prev) = decide::same_search(j, &sd, &key, l.again)?;
+        let (d, prev) = decide::same_search(j, &sd, &k.code_digest, l.again)?;
         ran.say(d.said());
         if let (Some((row, _)), false) = (prev, l.again) {
             ran.reused_seq = Some(row.seq);

@@ -217,7 +217,7 @@ one page: [docs/COMPOSITION.md](docs/COMPOSITION.md).
 ## Releasing
 
 Bump `version` in Cargo.toml and give CHANGELOG.md a dated `## <version> (YYYY-MM-DD)` entry, then push to main.
-CI (`.github/workflows/ci.yml`) tests on stable and Rust 1.88, runs clippy, and publishes to crates.io
+CI (`.github/workflows/ci.yml`) tests on stable and Rust 1.89, runs clippy, and publishes to crates.io
 through trusted publishing; a version already on crates.io, or an entry still marked `(unreleased)`, publishes nothing.
 A custodian_kit version custodian needs is released first: the published crate takes the kit from crates.io.
 
@@ -254,4 +254,4 @@ custodian depends by path on [custodian_kit](../custodian_kit), which sits besid
 `maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses (custodian_kit 0.1.1: a job's close reads cargo's test
 outcomes, the words custodian writes). `cargo test` runs 44 tests:
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
-`tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.
+`tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.89 or later.

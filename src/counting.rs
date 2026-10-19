@@ -13,26 +13,12 @@ use crate::facade::{Ctx, Ran};
 use crate::journal::ReadingRow;
 use crate::layout::{self, write_whole};
 use crate::readings::{self, Ask};
-use crate::surface::{s, so, Count};
+use crate::surface::{so, CountOf};
 use custodian_kit::reading::count::{compare_counts, CountDiff, CountReport, Lines};
 
-/// The route a line names: the workspace when none.
-fn route_of(l: &Count) -> String {
-    l.args.first().map(s).unwrap_or_else(|| "*".into())
-}
-
-pub fn count(ctx: &mut Ctx, l: &Count) -> Result<Ran> {
-    let first = l.args.first().map(s);
-    match first.as_deref() {
-        Some("report") => {
-            let (Some(a), Some(b)) = (l.args.get(1).map(s), l.args.get(2).map(s)) else {
-                return Err(Code::LineRefused.refuse("count report names two counts: a receipt number, a job id, a commit or a date"));
-            };
-            report(ctx, &a, &b)
-        }
-        Some("history") => history(ctx, l.args.get(1).map(s).as_deref()),
-        _ => take(ctx, &route_of(l), so(&l.by).as_deref().unwrap_or("crate"), l.tests, l.again, so(&l.job)),
-    }
+/// `custodian count of [ROUTE]`: one count of the route (the workspace by default).
+pub fn count(ctx: &mut Ctx, l: &CountOf) -> Result<Ran> {
+    take(ctx, &so(&l.route).unwrap_or_else(|| "*".into()), so(&l.by).as_deref().unwrap_or("crate"), l.tests, l.again, so(&l.job))
 }
 
 /// One count of `route`, as a reading.

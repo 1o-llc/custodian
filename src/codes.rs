@@ -36,6 +36,8 @@ liaise_proc_macro::liaise_codes! {
         JobFile = 1403 => "a job.toml or template does not read",
         UnknownKind = 1404 => "no job template of that kind",
         StepFailed = 1405 => "a job step's line did not run to an accepted status",
+        JobLockHeld = 1406 => "another run holds the project's job lock (a job's start, its close or the queue)",
+        BoundedEdit = 1407 => "a bounded job is open: its code is written through change specs (custodian preflight, custodian transform), never by hand",
 
         // 15xx: the socket
         Socket = 1501 => "the serve socket cannot be bound or reached",
@@ -61,6 +63,11 @@ liaise_proc_macro::liaise_codes! {
         ToolArguments = 1904 => "the arguments are not the tool's declared fields",
         NoSuchResource = 1905 => "no resource at that address",
         McpTransport = 1906 => "the MCP connection failed",
+
+        // 20xx: change specs, plans, decisions, linkage
+        NoChangeSpec = 2001 => "no change spec of that name or path",
+        NoPlan = 2002 => "no plan of that name",
+        LinkageArgs = 2003 => "a linkage record names its kind, its reason and two declarations or more",
     }
 }
 

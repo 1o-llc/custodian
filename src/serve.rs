@@ -79,8 +79,8 @@ pub fn frame_of<T: Serialize>(value: &T) -> Result<Vec<u8>> {
 pub fn kind_of(line: &Line) -> Option<RequestKind> {
     match line {
         Line::Run(_) => Some(RequestKind::RunSpec),
-        Line::Job(j) if j.action == "start" => Some(RequestKind::RunJob),
-        Line::Job(j) if j.action == "import" => Some(RequestKind::ImportBundle),
+        Line::JobStart(_) => Some(RequestKind::RunJob),
+        Line::JobImport(_) => Some(RequestKind::ImportBundle),
         Line::Stop(_) => Some(RequestKind::Stop),
         Line::Serve(_) => Some(RequestKind::Status),
         _ => None,
@@ -111,7 +111,7 @@ pub fn absolute(line: &Line, here: &Path) -> Line {
     };
     match line {
         Line::Run(r) => Line::Run(surface::Run { target: abs(&r.target), ..r.clone() }),
-        Line::Job(j) if j.action == "import" => Line::Job(surface::Job { name: abs(&j.name), ..j.clone() }),
+        Line::JobImport(j) => Line::JobImport(surface::JobImport { bundle: abs(&Some(j.bundle.clone())).unwrap_or_else(|| j.bundle.clone()) }),
         other => other.clone(),
     }
 }

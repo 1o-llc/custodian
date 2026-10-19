@@ -23,6 +23,9 @@ pub struct Settings {
     /// Globs (relative to the root) no reading reads, on top of a spec's own.
     #[serde(default)]
     pub exclude: Vec<String>,
+    /// A job's mode when its job file names none (custodian_kit's `store::Settings::job_mode`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub job_mode: Option<custodian_kit::jobs::JobMode>,
 }
 
 /// An initialized project.

@@ -108,6 +108,10 @@ pub struct StartAsk {
     pub intent: Option<String>,
     /// For a test: stop the queue's runner after this many stages.
     pub limit: Limit,
+    /// `bounded` or `unbounded` (the workspace's `job_mode` when unset).
+    pub mode: Option<String>,
+    /// What done looks like, declared at open.
+    pub verify: Vec<String>,
 }
 
 /// The passenger checkpoints a job took, kept in its folder: `{ "open": id, "close": id }`.
@@ -137,6 +141,11 @@ fn checkpoint(ctx: &mut Ctx, job: &str, folder: &Path, at: &str, ran: &mut Ran) 
 
 /// `custodian job start [NAME|ID]`: the kit's job start, the job left open.
 pub fn start(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
+    let line = crate::surface::Line::JobStart(crate::surface::JobStart { name: ask.which.clone().map(Into::into), ..Default::default() });
+    crate::runtime::under_job_lock(ctx, &line, |ctx| start_held(ctx, ask))
+}
+
+fn start_held(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     ctx.mode.need_project()?.need_agent()?;
     if let Some(resumed) = crate::runtime::resume(ctx, ask.limit)? {
         return Ok(resumed);
@@ -184,6 +193,14 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
         jf.origin = ask.origin.clone();
         jf.id = None;
     }
+    if let Some(m) = &ask.mode {
+        jf.mode = Some(m.parse().map_err(|e: String| Code::WordRefused.refuse(e))?);
+    }
+    for v in &ask.verify {
+        if !jf.verify.contains(v) {
+            jf.verify.push(v.clone());
+        }
+    }
     write_job_file(&folder, &jf)?;
     let started = {
         let k = kit(ctx);
@@ -230,6 +247,11 @@ fn running(ctx: &Ctx, which: Option<&str>) -> Result<(String, PathBuf)> {
 
 /// `custodian job close [ID]`: a passenger checkpoint, then the kit's job close.
 pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
+    let line = crate::surface::Line::JobClose(crate::surface::JobClose { name: which.map(Into::into) });
+    crate::runtime::under_job_lock(ctx, &line, |ctx| close_held(ctx, which))
+}
+
+fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let (id, folder) = running(ctx, which)?;
     let mut ran = Ran::named(&id);
     ran.job = Some(id.clone());
@@ -253,7 +275,16 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
         ran.say(format!("the tree in code_passenger's store: {a} at open, {b} at close ({})", ctx.rel(&done.join(PASSENGER_FILE))));
     }
     ran.say(format!("closing receipt: {}", ctx.rel(&file)));
+    ran.say(format!("result: {}{}", closing.result, closing.result_reason.as_ref().map(|r| format!(" ({r})")).unwrap_or_default()));
     ran.outputs = vec![ctx.rel(&file)];
+    if let Some(r) = closing.refusal.clone() {
+        // a bounded job with lines no transform covers: closed, its record terminal, and the line refused
+        ran.code = 2;
+        ran.refusal = Some(r);
+    } else if closing.result == "failed_test" || (closing.result == "pending" && closing.mode == Some(custodian_kit::jobs::JobMode::Bounded)) {
+        // a test that failed is a finding; an unbounded job's pending result is said, not a finding (it is help)
+        ran.code = 1;
+    }
     Ok(ran)
 }
 
@@ -298,6 +329,16 @@ pub fn brief(ctx: &mut Ctx, which: Option<&str>, bundle: bool) -> Result<Ran> {
         ran.said.extend(b.said);
         ran.outputs.extend(b.outputs);
     }
+    Ok(ran)
+}
+
+/// `custodian job verify LINE [--job ID]`: what done looks like, declared on the running job (custodian_kit's
+/// `jobs::declare_verify`, with its `verify` receipt).
+pub fn verify(ctx: &mut Ctx, which: Option<&str>, line: &str) -> Result<Ran> {
+    let (id, r) = custodian_kit::jobs::declare_verify(&kit(ctx), which, line)?;
+    let mut ran = Ran::named(&id);
+    ran.job = Some(id.clone());
+    ran.say(format!("job {id}: done is {line} (verify receipt #{}); its close is accepted only when its runs satisfy it", r.seq));
     Ok(ran)
 }
 
@@ -359,6 +400,11 @@ pub fn list(ctx: &mut Ctx) -> Result<Ran> {
 
 /// `custodian run` with nothing named, in agent mode: every queued job folder on the queue's runner.
 pub fn run_queue(ctx: &mut Ctx, again: bool, ran: &mut Ran) -> Result<()> {
+    let line = crate::surface::Line::Run(crate::surface::Run { again, ..Default::default() });
+    crate::runtime::under_job_lock(ctx, &line, |ctx| run_queue_held(ctx, again, ran))
+}
+
+fn run_queue_held(ctx: &mut Ctx, again: bool, ran: &mut Ran) -> Result<()> {
     let layout = ctx.layout()?.clone();
     if let Some(r) = crate::runtime::resume(ctx, Limit::default())? {
         ran.said.extend(r.said);

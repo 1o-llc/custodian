@@ -5,26 +5,37 @@
 
 use crate::codes::{Code, Result};
 use crate::facade::{Ctx, Ran};
-use crate::surface::{s, so, SelfLine};
+
 use installation::{Installer, Scope};
 use std::path::PathBuf;
 
 pub const BIN: &str = "custodian";
 
-fn installer(l: &SelfLine) -> Result<Installer> {
-    match (so(&l.bin_dir), so(&l.state_dir)) {
+/// What a `self` line asks: its action and its options.
+#[derive(Debug, Clone, Default)]
+pub struct SelfAsk {
+    pub action: &'static str,
+    pub from: Option<String>,
+    pub bin_dir: Option<String>,
+    pub state_dir: Option<String>,
+    pub dry_run: bool,
+    pub force: bool,
+}
+
+fn installer(l: &SelfAsk) -> Result<Installer> {
+    match (l.bin_dir.clone(), l.state_dir.clone()) {
         (Some(b), Some(st)) => Installer::user_in(BIN, PathBuf::from(b), PathBuf::from(st)),
         _ => Installer::new(BIN, Scope::User),
     }
     .map_err(|e| Code::Install.refuse(e))
 }
 
-pub fn self_line(ctx: &mut Ctx, l: &SelfLine) -> Result<Ran> {
+pub fn self_line(ctx: &mut Ctx, l: &SelfAsk) -> Result<Ran> {
     let inst = installer(l)?;
-    let mut ran = Ran::named(format!("self {}", s(&l.action)));
-    match s(&l.action).as_str() {
+    let mut ran = Ran::named(format!("self {}", l.action));
+    match l.action {
         "install" => {
-            let from = so(&l.from).map(PathBuf::from).unwrap_or_else(|| ctx.exe.clone());
+            let from = l.from.clone().map(PathBuf::from).unwrap_or_else(|| ctx.exe.clone());
             let from = from.canonicalize().map_err(|e| Code::Install.refuse(format!("{}: {e}", from.display())))?;
             let plan = inst.plan(BIN, &from).map_err(|e| Code::Install.refuse(e))?;
             ran.print(plan.describe());

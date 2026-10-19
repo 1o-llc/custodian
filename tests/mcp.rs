@@ -63,7 +63,7 @@ async fn tools_run_the_declared_lines_and_readings_are_resources() {
     let (v, md) = parts(&call(&client, "count", json!({})).await.unwrap());
     assert_eq!((v["code"].as_i64(), v["status"].as_str()), (Some(0), Some("done")), "{v:#}");
     let seq = v["receipt"]["seq"].as_i64().unwrap();
-    assert_eq!(v["receipt"]["line"], "custodian count");
+    assert_eq!(v["receipt"]["line"], "custodian count of");
     assert_eq!(v["receipt_file"], format!(".custodian/data/receipts/{seq}.json"));
     assert_eq!(receipt(&d, seq)["receipt_digest"], v["receipt"]["receipt_digest"], "the receipt the journal keeps");
     assert!(v["said"].as_array().unwrap().iter().any(|s| s.as_str().unwrap().starts_with("read count-workspace (count *)")), "{v:#}");
@@ -154,8 +154,8 @@ async fn the_program_serves_on_its_stdio_and_a_resident_answers_its_lines() {
     let v = answered.expect("the resident answered");
     assert_eq!(v["code"], 0, "{v:#}");
     // count is not a resident's line: this process runs it, as the command line does
-    let (v, _) = parts(&call(&client, "count", json!({"args": ["crate:core_lib"], "by": "language"})).await.unwrap());
-    assert_eq!(v["receipt"]["line"], "custodian count crate:core_lib --by language", "{v:#}");
+    let (v, _) = parts(&call(&client, "count", json!({"route": "crate:core_lib", "by": "language"})).await.unwrap());
+    assert_eq!(v["receipt"]["line"], "custodian count of crate:core_lib --by language", "{v:#}");
     assert!(!v["said"].to_string().contains("answered by the resident"));
 
     client.cancel().await.unwrap();

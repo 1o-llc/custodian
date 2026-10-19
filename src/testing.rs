@@ -12,7 +12,7 @@ use crate::facade::{self, Ctx, External, ExternalNames, Ran};
 use crate::journal::TestRun;
 use crate::observe::{Observers, RunEvent};
 use crate::readings::{self, Ask};
-use crate::surface::{so, Test};
+use crate::surface::{so, TestRun as Test};
 use crate::words::ObserveLevel;
 use custodian_kit::api::{ReadingSpec, Resolving, Scope};
 use xccute_commands::CargoBuilder;
@@ -112,9 +112,6 @@ pub fn outcome_of(line: &str) -> Option<(String, String)> {
 
 /// `custodian test`.
 pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
-    if so(&l.action).as_deref() == Some("report") {
-        return report(ctx);
-    }
     let level = ObserveLevel::of_word(&so(&l.observe).unwrap_or_else(|| "failed".into()))?;
     let job = ctx.current_job(so(&l.job))?;
     let git_ref = so(&l.git_ref).unwrap_or_else(|| "HEAD".into());

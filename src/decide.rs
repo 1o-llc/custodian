@@ -109,10 +109,11 @@ impl Decided {
     }
 }
 
-/// Same search: the newest reading of this spec over this code, unless `again`.
-pub fn same_search(journal: &Journal, spec_digest: &str, index_key: &str, again: bool) -> crate::codes::Result<(Decided, Option<(ReadingRow, Receipt)>)> {
+/// Same search: the newest reading of this spec over this code (the kit's one key: the spec's hash and the code's
+/// digest), unless `again`.
+pub fn same_search(journal: &Journal, spec_hash: &str, code_digest: &str, again: bool) -> crate::codes::Result<(Decided, Option<(ReadingRow, Receipt)>)> {
     let g = same_search_guide();
-    let prev = journal.same_search(spec_digest, index_key)?;
+    let prev = journal.same_search(spec_hash, code_digest)?;
     let decided = match (&prev, again) {
         (Some((row, r)), false) => Decided::of(&g, vec![format!("#{} {} {}", row.seq, r.utc, row.name)], false, format!("yes: search #{} from {}, same spec, same code: reused (--again reads again)", row.seq, r.utc)),
         (Some((row, r)), true) => Decided::of(&g, vec![format!("#{} {}", row.seq, r.utc)], true, format!("yes, search #{} from {}; --again: read again", row.seq, r.utc)),
