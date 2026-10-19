@@ -175,6 +175,7 @@ macro_rules! leaf {
 #[composite(surface = "plan", ty = Plan)]
 #[composite(command = "decide", ty = Decide)]
 #[composite(surface = "linkage", ty = Linkage)]
+#[composite(surface = "exercise", ty = Exercise)]
 pub struct Custodian;
 
 /// `custodian agent init|brief|guard`.
@@ -240,6 +241,13 @@ pub struct Mcp;
 #[composite(command = "approve", ty = PlanApprove, init = "plan,step")]
 #[composite(command = "show", ty = PlanShow, init = "plan")]
 pub struct Plan;
+
+/// `custodian exercise run|report`.
+#[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
+#[subcommand(segment = "exercise")]
+#[composite(command = "run", ty = ExerciseRun)]
+#[composite(command = "report", ty = ExerciseReport)]
+pub struct Exercise;
 
 /// `custodian linkage add|check`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
@@ -1116,6 +1124,66 @@ leaf! {
     }
 }
 
+leaf! {
+    /// Custodian's own change path tried on copies of the project, every result a receipt. For each operation and
+    /// each kind of unit it applies to, N targets picked from the index, each a case run on a copy in the job's data
+    /// folder (spec, preflight, transform, cargo check, the tests with `--tests`, the closing check); every refusal,
+    /// compile error or uncovered file a finding with its receipt; with `--intents`, each line through the cheap
+    /// model first.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "run")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct ExerciseRun {
+        /// The operations, comma-separated (every one by default).
+        #[builder(into)]
+        #[arg(kv = "--ops", each = ops_words)]
+        pub ops: Option<OsString>,
+        /// The unit kinds, comma-separated: item, function, impl, module, file, crate (every one by default).
+        #[builder(into)]
+        #[arg(kv = "--units", each = unit_words)]
+        pub units: Option<OsString>,
+        /// Targets per operation and unit kind (1 by default).
+        #[builder(into)]
+        #[arg(kv = "--n", each = number)]
+        pub n: Option<OsString>,
+        /// Run the landing crate's tests after each transform.
+        #[arg(flag = "--tests")]
+        pub tests: bool,
+        /// Only this crate's units.
+        #[builder(into)]
+        #[arg(kv = "--crate", each = plain)]
+        pub krate: Option<OsString>,
+        /// One intent a line, each turned into a change spec by the cheap model.
+        #[builder(into)]
+        #[arg(kv = "--intents", each = nonempty)]
+        pub intents: Option<OsString>,
+        /// The pick's seed (0 by default).
+        #[builder(into)]
+        #[arg(kv = "--seed", each = number)]
+        pub seed: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// An exercise job's summary, the newest when none is named. Cases run and passed, the findings by code, what to
+    /// fix first, the operation × unit matrix, the slowest cases, every finding with its receipt.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "report")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct ExerciseReport {
+        /// The exercise job: its id or name.
+        #[builder(into)]
+        #[arg(positional, each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
 // ---- the words each field takes ----
 
 fn refuse(field: &str, msg: String) -> CommandValidationResult {
@@ -1150,6 +1218,23 @@ fn one_of(field: &str, word: &OsStr, words: &[&str]) -> CommandValidationResult 
         Some(w) if words.contains(&w) => Ok(()),
         _ => refuse(field, format!("{word:?} is not a {field}: {}", words.join(", "))),
     }
+}
+
+/// Words of a set, comma-separated.
+fn each_of(field: &str, word: &OsStr, words: &[&str]) -> CommandValidationResult {
+    let t = word.to_string_lossy();
+    match t.split(',').map(str::trim).find(|w| !words.contains(w)) {
+        Some(w) => refuse(field, format!("{w:?} is not one of the {field}: {}", words.join(", "))),
+        None => Ok(()),
+    }
+}
+
+fn ops_words(field: &str, word: &OsStr) -> CommandValidationResult {
+    each_of(field, word, &custodian_kit::change::Operation::ALL.iter().map(|o| o.as_str()).collect::<Vec<_>>())
+}
+
+fn unit_words(field: &str, word: &OsStr) -> CommandValidationResult {
+    each_of(field, word, &custodian_kit::exercise::Unit::ALL.iter().map(|u| u.as_str()).collect::<Vec<_>>())
 }
 
 /// A verification line: `test:<name>`, `reading:<spec>`, `check:<which>`.
@@ -1288,7 +1373,7 @@ macro_rules! lines {
         pub const DECLARED: &[(&str, Declared)] = &[$((concat!($($word, " "),+), $ty::DECLARED),)*];
 
         /// Every surface the root has, by its segment.
-        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage"];
+        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise"];
 
         impl Line {
             /// The words that name the line: `job start`.
@@ -1395,6 +1480,8 @@ lines! {
     Decide(Decide) = ["decide"] in root => read_decide;
     LinkageAdd(LinkageAdd) = ["linkage", "add"] in Linkage => read_linkage_add;
     LinkageCheck(LinkageCheck) = ["linkage", "check"] in Linkage => read_linkage_check;
+    ExerciseRun(ExerciseRun) = ["exercise", "run"] in Exercise => read_exercise_run;
+    ExerciseReport(ExerciseReport) = ["exercise", "report"] in Exercise => read_exercise_report;
 }
 
 /// The usage screen's lines: the root's help lines, generated from the declarations.
@@ -1428,6 +1515,8 @@ pub fn read(args: &[OsString]) -> Result<Line> {
             _ if seg == "count" => read_path("count of", rest)?,
             _ if seg == "test" => read_path("test run", rest)?,
             Some(_) if seg == "plan" => read_path("plan make", rest)?,
+            // `exercise [--ops ...]` is `exercise run`
+            _ if seg == "exercise" && rest.first().is_none_or(|w| w.starts_with("--")) => read_path("exercise run", rest)?,
             Some(c) => return Err(Code::LineRefused.refuse(format!("`custodian {seg} {c}`: {seg} takes {}", commands.join(", ")))),
             None => return Err(Code::LineRefused.refuse(format!("`custodian {seg}` names its action: {}", commands.join(", ")))),
         }
@@ -1659,6 +1748,14 @@ fn read_linkage_check(w: &mut Words) -> Result<LinkageCheck> {
     Ok(LinkageCheck { target: pos(w) })
 }
 
+fn read_exercise_run(w: &mut Words) -> Result<ExerciseRun> {
+    Ok(ExerciseRun { ops: kv(w, "--ops")?, units: kv(w, "--units")?, n: kv(w, "--n")?, tests: w.flag("--tests"), krate: kv(w, "--crate")?, intents: kv(w, "--intents")?, seed: kv(w, "--seed")? })
+}
+
+fn read_exercise_report(w: &mut Words) -> Result<ExerciseReport> {
+    Ok(ExerciseReport { job: pos(w) })
+}
+
 /// A field as a string.
 pub fn s(v: &OsString) -> String {
     v.to_string_lossy().into_owned()
@@ -1730,6 +1827,9 @@ mod tests {
             Custodian::decide().argv(),
             Custodian::linkage().add("x").kind("synchronized").why("same_keys").bind(["core_lib::Config", "app::Settings"]).argv(),
             Custodian::linkage().check().target("core_lib::Config").argv(),
+            Custodian::exercise().run().ops("add_field,rename").units("item,function").n("2").tests().krate("core_lib").intents("intents.txt").seed("7").argv(),
+            Custodian::exercise().run().argv(),
+            Custodian::exercise().report().job("exercise-1").argv(),
         ];
         let mut paths: Vec<String> = lines.iter().map(|l| read(l).unwrap_or_else(|e| panic!("{l:?}: {e}")).path().to_string()).collect();
         paths.sort();
@@ -1780,6 +1880,10 @@ mod tests {
         assert_eq!(read(&words("count crate:core_lib --by language")).unwrap().display(), "custodian count of crate:core_lib --by language");
         assert_eq!(read(&words("test --all")).unwrap().display(), "custodian test run --all");
         assert_eq!(read(&words("plan carry a digest")).unwrap().display(), "custodian plan make carry a digest");
+        assert_eq!(read(&words("exercise --n 2 --tests")).unwrap().display(), "custodian exercise run --n 2 --tests");
+        assert_eq!(read(&words("exercise")).unwrap().display(), "custodian exercise run");
+        assert!(read(&words("exercise --ops add_field,inline")).unwrap_err().to_string().contains("\"inline\" is not one of the ops"));
+        assert!(read(&words("exercise --units item,trait")).is_err() && read(&words("exercise --n two")).is_err());
     }
 
     #[test]

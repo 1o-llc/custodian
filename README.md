@@ -174,6 +174,7 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `plan make INTENT [--name N]`, `plan approve PLAN STEP [--operation OP]`, `plan show PLAN` | an intent's plan (where, reuse, what is new, impact, cost, decisions, steps); a step as a change spec |
 | `decide [ID ANSWER] [--why TEXT]` | the open decisions together; one answered, never asked again |
 | `linkage add NAME --kind K --why TEXT --bind A --bind B`, `linkage check [TARGET]` | why declarations are bound together, each bind resolved; stale, to review or holding |
+| `exercise [--ops OPS] [--units UNITS] [--n N] [--tests] [--crate R] [--intents FILE] [--seed S]`, `exercise report [JOB]` | custodian_kit's `exercise` job: each operation tried on N targets of each unit kind it applies to, each on a copy in the job's data folder (spec, preflight, transform, cargo check, tests, the closing check); every refusal, compile error or uncovered file a finding with its receipt; `--intents`: one intent a line through the cheap model (`claude -p --model claude-haiku-4-5-20251001`), `not run: no model` without one; `report`: the summary, what to fix first |
 
 `custodian` with no words prints these lines with their help, generated from the declarations
 (`tests/golden/help.txt` holds them). The 0.1.0 spellings `count [ROUTE]`, `test [--all]` and `plan INTENT` still
@@ -254,9 +255,9 @@ by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a searc
 `kind`, as `reach` or `impact`), `list`, `diff`, `job_start`, `job_close`, `job_brief`, `job_list`, `job_verify`,
 `test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
 `diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
-`count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add` and
-`linkage_check`. `init`, `agent init`, `agent guard`, `job import`, `sweep`, `serve`, `stop`, `watch`, `self *` and
-`mcp serve` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
+`count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add`,
+`linkage_check` and `exercise_report`. `init`, `agent init`, `agent guard`, `job import`, `sweep`, `serve`, `stop`,
+`watch`, `self *`, `mcp serve` and `exercise run` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
 declared one or the other in `src/mcp.rs`.
 
 A call runs the way the command line runs: the arguments become the declared line's words, read back through the

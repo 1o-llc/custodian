@@ -47,6 +47,9 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian decide [ID] [ANSWER] [--why WHY]                                The decisions still open, asked together; with an id and an answer, one decision made (its reason with it), kept in the task history so it is never asked again
   custodian linkage add NAME [--kind KIND] [--why WHY] [--bind BIND]...     A linkage record: why declarations are bound together, each bound declaration resolved now
   custodian linkage check [TARGET]                                          The linkage records naming a target (every record by default), each checked against the code: stale, to review, or holding; and the comment anchors no record backs
+  custodian exercise run [--ops OPS] [--units UNITS] [--n N] [--tests] [--crate KRATE] [--intents INTENTS] [--seed SEED]
+                                                                            Custodian's own change path tried on copies of the project, every result a receipt
+  custodian exercise report [JOB]                                           An exercise job's summary, the newest when none is named
 
 exit status: 0 done, 1 findings, 2 refused. Inside an initialized folder (.custodian here or above) every run is journaled; elsewhere it is free mode and nothing is stored.
 

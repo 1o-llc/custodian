@@ -22,6 +22,7 @@ pub mod counting;
 pub mod decide;
 pub mod diag;
 pub mod digest;
+pub mod exercise;
 pub mod facade;
 pub mod history;
 pub mod install;

@@ -124,6 +124,8 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::Decide(l) => crate::changes::decide(ctx, so(&l.id).as_deref(), so(&l.answer).as_deref(), so(&l.why).as_deref()),
         Line::LinkageAdd(l) => crate::changes::linkage_add(ctx, &s(&l.name), so(&l.kind).as_deref(), so(&l.why).as_deref(), &l.bind.iter().map(s).collect::<Vec<_>>()),
         Line::LinkageCheck(l) => crate::changes::linkage_check(ctx, so(&l.target).as_deref()),
+        Line::ExerciseRun(l) => crate::exercise::run(ctx, l),
+        Line::ExerciseReport(l) => crate::exercise::report(ctx, so(&l.job).as_deref()),
     }
 }
 

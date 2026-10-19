@@ -87,6 +87,7 @@ pub const TOOLS: &[ToolLine] = &[
     tool("decide", "decide", &[], "With no id, the open decisions; an answer is the person's, written as they gave it."),
     tool("linkage_add", "linkage add", &[], ""),
     tool("linkage_check", "linkage check", &[], ""),
+    tool("exercise_report", "exercise report", &[], "What an exercise found: what to fix first, every finding with its receipt."),
 ];
 
 /// The lines that are a person's, never a tool, and why.
@@ -98,6 +99,7 @@ pub const A_PERSONS: &[(&str, &str)] = &[
     ("sweep", "offers routes for a person to declare"),
     ("serve", "the resident, in a person's terminal"),
     ("stop", "stops the resident"),
+    ("exercise run", "runs the change path over copies of the project for minutes; a person starts it"),
     ("watch", "follows events until stopped"),
     ("self install", "installs the program"),
     ("self uninstall", "removes the program"),

@@ -540,3 +540,24 @@ fn init_macros_annotate_apply_and_features_apply_write_through_code_passenger() 
     let toml = std::fs::read_to_string(&toml).unwrap();
     assert!(toml.contains("optional = true") && toml.contains("[features]"), "{toml}");
 }
+
+#[test]
+fn an_exercise_runs_on_copies_and_its_report_reads_back() {
+    let d = fixture("exercise");
+    ok(&d, &["agent", "init"], 0);
+    // the options are a word: a word that is not an operation is refused before anything runs
+    let bad = run(&d, &["exercise", "--ops", "add_field,inline"]);
+    assert_eq!(bad.code, 2, "{}", bad.all());
+    if !passenger_here() {
+        return;
+    }
+    let lib = std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap();
+    let out = ok(&d, &["exercise", "--ops", "add_field", "--units", "item", "--n", "1", "--crate", "core_lib"], 0);
+    assert!(out.contains(": 1 cases run, 1 passed, 0 findings"), "{out}");
+    assert!(out.contains("| add_field | item | 1 | 1 | 0 |") && out.contains("| authorized | written (1 files) | compiles |"), "{out}");
+    assert_eq!(std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap(), lib, "the project's tree is never written");
+    let summary = out.lines().find_map(|l| l.strip_prefix("summary: ").filter(|f| f.contains("/jobs/done/"))).unwrap().to_string();
+    assert!(d.join(&summary).is_file(), "{summary}");
+    let report = ok(&d, &["exercise", "report"], 0);
+    assert!(report.contains(": 1 cases run, 1 passed, 0 findings") && report.contains("## what to fix, most findings first"), "{report}");
+}

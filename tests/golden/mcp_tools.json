@@ -113,7 +113,8 @@
           "enum": [
             "specs",
             "triage",
-            "features"
+            "features",
+            "exercise"
           ],
           "type": "string"
         },
@@ -711,6 +712,20 @@
       "properties": {
         "target": {
           "description": "An item, a route or a record's name. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "exercise_report",
+    "description": "Runs `custodian exercise report`, a declared line; every run leaves a receipt. What an exercise found: what to fix first, every finding with its receipt.\n\nAn exercise job's summary, the newest when none is named. Cases run and passed, the findings by code, what to fix first, the operation × unit matrix, the slowest cases, every finding with its receipt.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "The exercise job: its id or name. (a word on the line)",
           "type": "string"
         }
       },

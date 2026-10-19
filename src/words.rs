@@ -17,13 +17,13 @@ pub struct ObserveLevel {
     level: u8,
 }
 
-/// What a job is: a folder of specs, or one of the templates custodian_kit ships.
+/// What a job is: a folder of specs, one of the templates custodian_kit ships, or an exercise.
 #[bitpack(storage = u8, version = 1)]
 pub struct JobKind {
     #[bits(3)]
     #[describe("what a job is")]
-    #[labels(specs = 0, triage = 1, features = 2)]
-    #[invalid(3..=7)]
+    #[labels(specs = 0, triage = 1, features = 2, exercise = 3)]
+    #[invalid(4..=7)]
     kind: u8,
 }
 
@@ -117,7 +117,8 @@ mod tests {
         assert_eq!(ObserveLevel::of_word("progress").unwrap().word(), "progress");
         assert!(ObserveLevel::of_word("loud").is_err());
         assert_eq!(JobKind::of_word("triage").unwrap().qos(), waker_protocol::QoSClass::Interactive);
-        assert_eq!(JobKind::words(), ["specs", "triage", "features"]);
+        assert_eq!(JobKind::words(), ["specs", "triage", "features", "exercise"]);
+        assert_eq!(JobKind::of_word("exercise").unwrap().qos(), waker_protocol::QoSClass::Batch);
         assert_eq!(JobKind::of_word("features").unwrap().qos(), waker_protocol::QoSClass::Batch);
     }
 }
