@@ -30,6 +30,9 @@ pub fn main_argv(args: &[OsString]) -> i32 {
         }
     };
     let here = std::env::current_dir().unwrap_or_else(|_| PathBuf::from("."));
+    if let Line::Mcp(m) = &line {
+        return mcp_serve(&here, so(&m.root));
+    }
     if let Some(outcome) = crate::serve::try_socket(&here, &line) {
         print!("{}", outcome.text());
         return outcome.code;
@@ -90,6 +93,26 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::Stop(_) => Ok(Ran { said: vec!["no resident answers on this project's socket: nothing to stop".into()], ..Ran::named("stop") }),
         Line::Watch(l) => crate::observe::watch(ctx, l),
         Line::SelfCmd(l) => crate::install::self_line(ctx, l),
+        Line::Mcp(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
+    }
+}
+
+/// `custodian mcp serve [--root DIR]`: the process moves to the project (so a relative path in a tool's arguments
+/// is the project's, as on the command line) and serves MCP on stdin and stdout until the host closes them.
+fn mcp_serve(here: &Path, root: Option<String>) -> i32 {
+    let root = root.map(|r| here.join(r)).unwrap_or_else(|| here.to_path_buf());
+    if let Err(e) = std::env::set_current_dir(&root) {
+        eprintln!("{}", Code::McpTransport.refuse(format!("{}: {e}", root.display())));
+        return 2;
+    }
+    #[cfg(feature = "mcp")]
+    {
+        crate::mcp::serve_stdio(&root)
+    }
+    #[cfg(not(feature = "mcp"))]
+    {
+        eprintln!("{}", Code::McpBuiltWithout.refuse("cargo install custodian --features mcp"));
+        2
     }
 }
 

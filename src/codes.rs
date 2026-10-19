@@ -53,6 +53,14 @@ liaise_proc_macro::liaise_codes! {
         NoTests = 1801 => "no test lines to run",
         CheckRefused = 1802 => "maintenance refused the check line",
         NoWriterLine = 1803 => "code_passenger has no line that writes this, and custodian never edits source itself",
+
+        // 19xx: the MCP server
+        McpForeground = 1901 => "mcp serve runs in the foreground, on stdin and stdout: custodian mcp serve",
+        McpBuiltWithout = 1902 => "this custodian was built without the mcp feature",
+        NoSuchTool = 1903 => "no tool of that name",
+        ToolArguments = 1904 => "the arguments are not the tool's declared fields",
+        NoSuchResource = 1905 => "no resource at that address",
+        McpTransport = 1906 => "the MCP connection failed",
     }
 }
 

@@ -78,6 +78,9 @@ pub struct Outcome {
     pub receipt_file: Option<String>,
     pub printed: Vec<String>,
     pub said: Vec<String>,
+    /// A refused run: the liaise code and what was refused.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub refusal: Option<Refusal>,
 }
 
 impl Outcome {
@@ -260,7 +263,7 @@ pub fn execute(ctx: &mut Ctx, line: &Line, handler: impl FnOnce(&mut Ctx, &Line)
             said.push(format!("the install receipt was not journaled: {e}"));
         }
     }
-    Outcome { code, receipt_file: file.map(|f| ctx.rel(&f)), receipt, printed: ran.printed, said }
+    Outcome { code, receipt_file: file.map(|f| ctx.rel(&f)), receipt, printed: ran.printed, said, refusal }
 }
 
 fn receipt_of(plan: &RuntimeOperationPlan, rr: &RuntimeOperationReceipt, preview: &CommandPreview, ran: &Ran, millis: i64) -> Receipt {

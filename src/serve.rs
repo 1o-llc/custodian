@@ -9,7 +9,7 @@
 //! client → server   [u32 LE length][Request JSON]
 //! server → client   [u32 LE length][Reply JSON]
 //! Request { schema: "custodian.serve.v1", kind: run_spec | run_job | import_bundle | status | stop, argv: [..] }
-//! Reply   { schema: "custodian.serve.v1", outcome: Outcome { code, receipt, receipt_file, printed, said }, live: [..] }
+//! Reply   { schema: "custodian.serve.v1", outcome: Outcome { code, receipt, receipt_file, printed, said, refusal? }, live: [..] }
 //! ```
 //!
 //! `argv` is the declared line's words after `custodian`; the resident reads them back through the same surface and
@@ -98,7 +98,7 @@ pub fn socket_path(layout: &layout::Layout) -> Result<PathBuf> {
 }
 
 /// A line's words, with a file it names made absolute (the resident runs elsewhere).
-fn absolute(line: &Line, here: &Path) -> Line {
+pub fn absolute(line: &Line, here: &Path) -> Line {
     let abs = |v: &Option<std::ffi::OsString>| {
         v.as_ref().map(|t| {
             let p = here.join(t);
@@ -131,8 +131,19 @@ fn send(path: &Path, req: &Request) -> Result<Reply> {
     Ok(reply)
 }
 
-/// The line sent to the resident, when one answers on the project's socket.
+/// The line sent to the resident, when one answers on the project's socket; what the run showed while it ran is
+/// printed first.
 pub fn try_socket(here: &Path, line: &Line) -> Option<Outcome> {
+    let (outcome, live) = ask_resident(here, line)?;
+    for l in &live {
+        println!("{l}");
+    }
+    Some(outcome)
+}
+
+/// The line sent to the resident, when one answers on the project's socket: its outcome, and what it showed while
+/// it ran (nothing printed: the MCP server's stdout is its protocol).
+pub fn ask_resident(here: &Path, line: &Line) -> Option<(Outcome, Vec<String>)> {
     let kind = kind_of(line)?;
     if kind == RequestKind::Status {
         return None;
@@ -146,12 +157,9 @@ pub fn try_socket(here: &Path, line: &Line) -> Option<Outcome> {
     let req = Request { schema: WIRE_SCHEMA.into(), kind, argv: line.argv().iter().map(|a| a.to_string_lossy().into_owned()).collect() };
     match send(&path, &req) {
         Ok(reply) => {
-            for l in &reply.live {
-                println!("{l}");
-            }
             let mut o = reply.outcome;
             o.said.push(format!("answered by the resident on {}", path.display()));
-            Some(o)
+            Some((o, reply.live))
         }
         Err(_) => None,
     }
@@ -197,6 +205,7 @@ fn bare(code: i32, line: &str, said: Vec<String>) -> Outcome {
         receipt_file: None,
         printed: Vec::new(),
         said,
+        refusal: None,
     }
 }
 

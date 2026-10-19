@@ -155,7 +155,7 @@ exit status, wall time); `installs`; `checkpoints` (the job queue's).
 client → server   [u32 little-endian length][Request JSON]
 server → client   [u32 little-endian length][Reply JSON]
 Request { "schema": "custodian.serve.v1", "kind": "run_spec" | "run_job" | "import_bundle" | "status" | "stop", "argv": [...] }
-Reply   { "schema": "custodian.serve.v1", "outcome": { "code", "receipt", "receipt_file", "printed", "said" }, "live": [...] }
+Reply   { "schema": "custodian.serve.v1", "outcome": { "code", "receipt", "receipt_file", "printed", "said", "refusal"? }, "live": [...] }
 ```
 
 `argv` is the declared line's words; the resident reads them through the same surface and runs them through the
@@ -163,6 +163,48 @@ same facade, so a run over the socket leaves the same receipt. The command line 
 `job start`, `job import` and `stop`, and does the work itself when nothing answers. A path longer than a Unix
 socket allows goes to `<runtime dir>/custodian/<digest>.sock`. `tests/golden/request_run_spec.frame` pins the
 bytes of one request.
+
+## MCP
+
+`custodian mcp serve` is an MCP server on stdin and stdout (built with the `mcp` feature, on by default; the SDK is
+rmcp, the official Rust one). Its tools are custodian's own lines, made from their declarations in
+`src/surface.rs`: one tool per line an agent runs, each tool's input schema the line's declared fields (a flag is a
+boolean, a list an array, the rest strings, a field's word set its `enum`, its `///` its description). The tools:
+`run` (a search on the line is `target` with `kind`, as `reach`), `list`, `diff`, `job_start`, `job_close`,
+`job_brief`, `job_list`, `test`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
+`diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report` and
+`count_history`. `init`, `agent`, `sweep`, `serve`, `stop`, `watch`, `self` and `mcp` are a person's and are never
+tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new subcommand fails the tests until it is
+declared one or the other in `src/mcp.rs`.
+
+A call runs the way the command line runs: the arguments become the declared line's words, read back through the
+same reader (so a bad call is the line's own refusal), sent to `custodian serve` when one answers on the project's
+socket, else run in the server's process through the facade. Every call leaves a receipt. The result is the JSON
+of the run (`code`, `status`, `receipt`, `receipt_file`, `reading` with its `path` and `resource`, `said`, `live`,
+`refusal`), then the reading's markdown when it is at most 64 KiB (`mcp::INLINE_CAP`). Arguments that do not make
+the line are an MCP error whose `data.code` is the liaise code (`CUST1001`, `CUST1904`); a line that ran and was
+refused is a tool error whose JSON names the code and the receipt. Resources: `custodian://readings/<seq>` is the
+page of the reading kept under receipt `seq`, and `custodian://job/<id>/brief` is a closed job's brief.
+
+The command an MCP host runs (the root is the project; without `--root` it is where the server starts):
+
+```text
+custodian mcp serve --root /path/to/your/workspace
+```
+
+An example of what a host's configuration holds for it (nothing here installs or registers it; where this goes is
+the host's own file):
+
+```json
+{
+  "mcpServers": {
+    "custodian": {
+      "command": "custodian",
+      "args": ["mcp", "serve", "--root", "/path/to/your/workspace"]
+    }
+  }
+}
+```
 
 ## How it is built
 

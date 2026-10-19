@@ -7,7 +7,8 @@
 //! ([`readings`]); jobs are folders ([`jobs`]) run by the runner (scope for a job's steps, waker_protocol for the
 //! queue with checkpoints, [`runtime`]) and watched by the observer set ([`observe`]); the resident answers on an
 //! owner-only socket ([`serve`]). [`testing`], [`maint`], [`diag`], [`bundling`] and [`install`] are the rest of
-//! the lines. Refusals are one liaise table ([`codes`]); option sets are big-bad-bool words ([`words`]); every
+//! the lines; `mcp` (feature `mcp`, on by default) serves the agent's lines as MCP tools made from their
+//! declarations. Refusals are one liaise table ([`codes`]); option sets are big-bad-bool words ([`words`]); every
 //! digest is stable_digest over one canonical form ([`digest`]); the gates are xccute decisions ([`decide`]).
 
 #![deny(unsafe_code)]
@@ -26,6 +27,8 @@ pub mod jobs;
 pub mod journal;
 pub mod layout;
 pub mod maint;
+#[cfg(feature = "mcp")]
+pub mod mcp;
 pub mod mode;
 pub mod observe;
 pub mod readings;

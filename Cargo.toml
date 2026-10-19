@@ -64,4 +64,15 @@ serde_json = "1"
 toml = "0.8"
 chrono = { version = "0.4", default-features = false, features = ["clock", "std"] }
 
+# `custodian mcp serve`: the lines as MCP tools, on the official Rust SDK over stdio
+rmcp = { version = "3.5.1", optional = true, default-features = false, features = ["server", "transport-io"] }
+tokio = { version = "1", optional = true, features = ["rt", "sync"] }
+
+[features]
+default = ["mcp"]
+mcp = ["dep:rmcp", "dep:tokio"]
+
 [dev-dependencies]
+# the tests' MCP client, in process and over the built program's stdio
+rmcp = { version = "3.5.1", default-features = false, features = ["client", "server", "transport-io"] }
+tokio = { version = "1", features = ["rt-multi-thread", "macros", "process", "io-util", "time"] }
