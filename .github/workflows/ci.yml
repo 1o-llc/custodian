@@ -15,7 +15,8 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # crates this one depends on by path; CI clones them next to it (every other crate is from crates.io)
-  SIBLINGS: custodian_kit
+  # (code_passenger is no dependency: it is the writer the bounded-mode tests run, built from its sibling checkout)
+  SIBLINGS: custodian_kit code_passenger
   ORG: 1o-llc
 
 jobs:
@@ -40,6 +41,10 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+      - name: Build the writer the bounded-mode tests run (code-passenger, from ../code_passenger)
+        # its rust-version may be newer than this crate's: built on stable only; tests/modes.rs says when it skips
+        if: matrix.rust == 'stable'
+        run: cargo build --manifest-path ../code_passenger/Cargo.toml --bin code-passenger
       - name: Test
         # tests/cli.rs runs `git` and `cargo test` on the fixture project
         run: cargo test --all-features

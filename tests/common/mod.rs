@@ -86,3 +86,34 @@ pub fn seq_of(out: &str) -> i64 {
 pub fn receipt(dir: &Path, seq: i64) -> serde_json::Value {
     serde_json::from_str(&std::fs::read_to_string(dir.join(format!(".custodian/data/receipts/{seq}.json"))).unwrap()).unwrap()
 }
+
+/// `custodian <words>` in `dir` with `bin` first on PATH (a writer the test built or found).
+pub fn run_with(dir: &Path, words: &[&str], bin: Option<&Path>) -> Ran {
+    let mut c = Command::new(BIN);
+    c.args(words).current_dir(dir).env_remove("XDG_RUNTIME_DIR");
+    if let Some(b) = bin {
+        c.env("PATH", format!("{}:{}", b.display(), std::env::var("PATH").unwrap_or_default()));
+    }
+    let o: Output = c.output().unwrap();
+    Ran { code: o.status.code().unwrap_or(-1), out: String::from_utf8_lossy(&o.stdout).into_owned(), err: String::from_utf8_lossy(&o.stderr).into_owned() }
+}
+
+/// `run_with` that must exit with `code`.
+pub fn ok_with(dir: &Path, words: &[&str], bin: Option<&Path>, code: i32) -> String {
+    let r = run_with(dir, words, bin);
+    assert_eq!(r.code, code, "custodian {}:\n{}", words.join(" "), r.all());
+    r.out
+}
+
+/// The directory of a `code-passenger` that has the `transform` line: `CUSTODIAN_TEST_PASSENGER` (its directory),
+/// else the sibling checkout's build (`../code_passenger/target/{debug,release}`), else none (the writing half of
+/// a test is then skipped, and says so).
+pub fn passenger_with_transform() -> Option<PathBuf> {
+    let sibling = Path::new(env!("CARGO_MANIFEST_DIR")).join("../code_passenger/target");
+    let mut dirs: Vec<PathBuf> = std::env::var_os("CUSTODIAN_TEST_PASSENGER").map(PathBuf::from).into_iter().collect();
+    dirs.extend([sibling.join("debug"), sibling.join("release")]);
+    dirs.into_iter().find(|d| {
+        let bin = d.join("code-passenger");
+        bin.is_file() && Command::new(&bin).args(["transform"]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stderr).contains("transform") && !String::from_utf8_lossy(&o.stderr).contains("is not a command"))
+    })
+}

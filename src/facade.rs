@@ -134,25 +134,28 @@ pub struct Ctx {
     pub live: Box<dyn FnMut(&str) + Send>,
     /// This run is the resident's (`custodian serve`): a job's readings run as the kit's declared lines.
     pub in_resident: bool,
+    /// What opening the journal put back from the receipts and job folders (nothing, when it held them all).
+    pub rebuilt: crate::journal::Rebuilt,
 }
 
 impl Ctx {
     /// The run's context at `start`.
     pub fn at(start: &Path) -> Result<Ctx> {
         let mode = Mode::find(start)?;
+        let mut rebuilt = crate::journal::Rebuilt::default();
         let journal = match &mode {
             Mode::Journaled(p) => {
                 let mut j = Journal::open(&p.layout.path::<layout::Journal>(&[])?)?;
                 // a fresh checkout: the journal rebuilt from the receipts and job folders it carries
                 let receipts = p.layout.dir::<layout::ReceiptFile>(&[("seq", "1")])?;
                 let jobs = p.layout.jobs_dir("x")?.parent().map(Path::to_path_buf).unwrap_or_default();
-                j.rebuild_from(p.root(), &receipts, &jobs)?;
+                rebuilt = j.rebuild_from(p.root(), &receipts, &jobs)?;
                 Some(j)
             }
             Mode::Free { .. } => None,
         };
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("custodian"));
-        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")), in_resident: false })
+        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")), in_resident: false, rebuilt })
     }
 
     pub fn root(&self) -> &Path {

@@ -262,6 +262,10 @@ pub fn list(ctx: &mut Ctx) -> Result<Ran> {
     let layout = ctx.layout()?.clone();
     let journal = ctx.journal()?;
     let mut s = format!("# inventory\n\n- root: `{}`\n- journal: {} receipts in `{}`\n", ctx.root().display(), journal.count()?, layout.rel(&journal.path));
+    if ctx.rebuilt.any() {
+        let r = ctx.rebuilt;
+        s.push_str(&format!("- journal rebuilt from the records this checkout carries: {} receipts, {} readings, {} jobs put back; the sequence continues from #{}\n", r.receipts, r.readings, r.jobs, r.last));
+    }
     let names = |dir: PathBuf| -> Vec<String> {
         let mut v: Vec<String> = std::fs::read_dir(dir).map(|rd| rd.filter_map(|e| e.ok()).filter_map(|e| e.path().file_stem().map(|n| n.to_string_lossy().into_owned())).collect()).unwrap_or_default();
         v.sort();

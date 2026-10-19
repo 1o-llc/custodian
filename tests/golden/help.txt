@@ -1,0 +1,52 @@
+custodian: readings of a Rust workspace, each run a declared line with a receipt
+
+  custodian init [--macros] [--job-mode JOB_MODE]                           The plain folder (specs, readings, journal); `--macros` adds `maintenance` to the workspace through code_passenger; `--job-mode` is the workspace's job mode when a job names none
+  custodian agent init [--macros] [--job-mode JOB_MODE]                     The folder with jobs as folders and the job kinds the agent mode knows
+  custodian agent brief [--head]                                            The first line an agent runs in a project: the mode, the open jobs and what they wait on, the decisions to make first, the latest reading of each spec and whether the code moved since, the test lines' last results, and the exact next lines to run
+  custodian agent guard FILE                                                May this file be edited by hand now? A bounded job refuses it (its code is written through change specs); otherwise yes
+  custodian run [TARGET] [--kind KIND] [--job JOB] [--again]                One spec (a file, or a queued or done spec's name), a search on the line (`--kind` and a target), or every queued spec and job folder in order
+  custodian list                                                            The inventory, rendered from the journal (rebuilt from the receipts a checkout carries)
+  custodian diff SPEC [--from FROM] [--to TO]                               What moved between two readings of one spec (the last two by default)
+  custodian job start [NAME] [--kind KIND] [--target TARGET] [--intent INTENT] [--mode MODE] [--verify VERIFY]... [--again]
+                                                                            Opens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open
+  custodian job close [NAME]                                                Closes the running job: its closing receipt, its task history's result (`accepted` only on evidence), its folder moved to done; a bounded job with lines no transform covers is refused, `rejected`
+  custodian job brief [NAME] [--bundle]                                     The facts of a job: open decisions first, the result, the mode and when its target and outcome became known, the readings, the lines touched; `--bundle` packs a closed job as one file too
+  custodian job import BUNDLE                                               A bundled job unbundled into the queue and started under a new id, its origin the bundle's digest
+  custodian job list                                                        Every job folder by state, each with its task state (proposed, ready, running, blocked, paused, verifying, completed, failed)
+  custodian job verify LINE [--job JOB]                                     Declares what done looks like for the running job; the closing receipt records when the outcome became known
+  custodian test run [--affected] [--all] [--observe OBSERVE] [--ref GIT_REF] [--job JOB]
+                                                                            The tests the change since `--ref` reaches (or every test line), each cargo line with its receipt and times
+  custodian test report                                                     The last runs' outcomes: the slowest lines, the flakiest tests, maintenance's timed report; nothing run
+  custodian check WHICH [--job JOB]                                         A maintenance check, through maintenance's own line, its JSON kept
+  custodian annotate [--from FROM] [--apply]                                The maintenance attributes the receipts call for, as a plan
+  custodian features [--apply]                                              code_passenger's feature-gating spec from the eligibility reading
+  custodian diagnostics list [KRATE]                                        Every liaise code table: each code's meaning and declaration, and the sites raising it
+  custodian diagnostics where CODE                                          Every site raising a diagnostic code, with its function
+  custodian diagnostics from LOG                                            Each code a log names: its declaration and its sites
+  custodian triage TARGET                                                   The built-in triage job, started and closed
+  custodian bundle TARGET [--no-tests] [--no-benches] [--no-examples] [--no-feature NO_FEATURE] [--only ONLY] [--redact-level REDACT_LEVEL] [--reveal] [--again]
+                                                                            A route, a declared set or a job as one annotated file, its filters a checked word
+  custodian sweep DIR                                                       List an undeclared tree and offer the routes to declare (the one walk custodian makes)
+  custodian count of [ROUTE] [--by BY] [--tests] [--again] [--job JOB]      Files, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share
+  custodian count report A B                                                Two counts compared: per crate and language, files added and removed, both digests
+  custodian count history [ROUTE]                                           Every count of a route (of every route by default)
+  custodian serve                                                           The resident, on the project's owner-only socket, until `custodian stop`
+  custodian stop                                                            Ask the resident to stop
+  custodian watch [--observe OBSERVE] [--since SINCE] [--follow]            Job state changes and test progress, through the observer set
+  custodian self install [--from FROM] [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--dry-run] [--force]
+                                                                            Installs custodian through the installation crate: a plan, the install from it, its receipt in the journal
+  custodian self uninstall [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--force]
+                                                                            Uninstalls custodian from its install receipt
+  custodian self status [--bin-dir BIN_DIR] [--state-dir STATE_DIR]         What is installed, from its receipt
+  custodian mcp serve [--root ROOT]                                         An MCP server on stdin and stdout whose tools are these lines, each call run as the command line runs it
+  custodian preflight SPEC [--job JOB]                                      What a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written
+  custodian transform [SPEC] [--write] [--revert REVERT] [--job JOB]        A change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on a scratch copy, written with `--write`, its record kept; or a record's files put back (`--revert`)
+  custodian plan make INTENT [--name NAME]                                  An intent's plan: where the work is, what can be reused, what is new, the top candidates' impact and the cost, the decisions to make before any step, and the steps proposed; nothing written
+  custodian plan approve PLAN STEP [--operation OPERATION]                  A plan's step written as a change spec (`data/specs/changes/`), proposed until its preflight authorizes it
+  custodian plan show PLAN                                                  A plan's page
+  custodian decide [ID] [ANSWER] [--why WHY]                                The decisions still open, asked together; with an id and an answer, one decision made (its reason with it), kept in the task history so it is never asked again
+  custodian linkage add NAME [--kind KIND] [--why WHY] [--bind BIND]...     A linkage record: why declarations are bound together, each bound declaration resolved now
+  custodian linkage check [TARGET]                                          The linkage records naming a target (every record by default), each checked against the code: stale, to review, or holding; and the comment anchors no record backs
+
+exit status: 0 done, 1 findings, 2 refused. Inside an initialized folder (.custodian here or above) every run is journaled; elsewhere it is free mode and nothing is stored.
+
