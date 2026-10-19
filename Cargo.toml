@@ -1,0 +1,23 @@
+[package]
+name = "custodian"
+version = "0.1.0"
+edition = "2021"
+rust-version = "1.85"
+
+license = "MIT OR Apache-2.0"
+description = "The command line of custodian_kit: code graph, queries, pins, search receipts, and `reading run <spec.toml>` pages with history"
+keywords = ["klepto", "code-search", "cli", "static-analysis"]
+categories = ["development-tools", "command-line-utilities"]
+
+authors = ["James Hunt <james@1o.business>"]
+repository = "https://github.com/jameshuntt/custodian"
+readme = "README.md"
+
+include = ["src/**", "Cargo.toml", "LICENSE*", "README*", "CHANGELOG*"]
+
+[dependencies]
+custodian_kit = { version = "0.1.0", path = "../custodian_kit" }
+# installs custodian itself (and the programs its lines run): plan, install from the plan, keep the receipt
+installation = "0.2.2"
+serde_json = "1"
+toml = "0.8"
