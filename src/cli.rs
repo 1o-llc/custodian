@@ -82,8 +82,8 @@ pub fn run_line(ctx: &mut Ctx, line: &Line) -> Outcome {
 pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
     use crate::install::SelfAsk;
     match line {
-        Line::Init(l) => init(ctx, FolderMode::Plain, l.macros, so(&l.job_mode)),
-        Line::AgentInit(l) => init(ctx, FolderMode::Agent, l.macros, so(&l.job_mode)),
+        Line::Init(l) => init_with(ctx, FolderMode::Plain, l.macros, so(&l.job_mode)),
+        Line::AgentInit(l) => init_with(ctx, FolderMode::Agent, l.macros, so(&l.job_mode)),
         Line::AgentBrief(l) => crate::agent::brief(ctx, l.head),
         Line::AgentGuard(l) => crate::agent::guard(ctx, &s(&l.file)),
         Line::Run(l) => run(ctx, l),
@@ -199,7 +199,13 @@ fn readings_sweep(ctx: &mut Ctx, dir: &str) -> Result<Ran> {
 /// `custodian init` / `custodian agent init`: the folder, its settings, the declared routes file, the rules
 /// custodian reads, and (agent) the job folders and templates. An existing folder is kept; its mode is raised to
 /// agent when asked.
-pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool, job_mode: Option<String>) -> Result<Ran> {
+/// `custodian init` / `agent init` as 0.1.0 had it: no job mode named (the workspace's default stays unbounded).
+pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
+    init_with(ctx, mode, macros, None)
+}
+
+/// `custodian init [--job-mode MODE]` / `agent init [--job-mode MODE]`.
+pub fn init_with(ctx: &mut Ctx, mode: FolderMode, macros: bool, job_mode: Option<String>) -> Result<Ran> {
     let here = std::env::current_dir().map_err(|e| Code::Write.refuse(e))?;
     let root = match &ctx.mode {
         Mode::Journaled(p) => p.root().to_path_buf(),
