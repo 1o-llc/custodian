@@ -15,8 +15,9 @@ permissions:
 env:
   CARGO_TERM_COLOR: always
   # crates this one depends on by path; CI clones them next to it (every other crate is from crates.io)
-  # (code_passenger is no dependency: it is the writer the bounded-mode tests run, built from its sibling checkout)
-  SIBLINGS: custodian_kit code_passenger
+  # (code_passenger is no dependency: it is the writer the bounded-mode tests run, built from its sibling checkout;
+  # an entry with an owner, owner/name, is cloned from that owner instead of ORG)
+  SIBLINGS: custodian_kit jameshuntt/code_passenger
   ORG: 1o-llc
 
 jobs:
@@ -33,9 +34,10 @@ jobs:
         # the same branch when a sibling has one, so a change across crates is tested together
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
-          for s in $SIBLINGS; do
-            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
-              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
+          for e in $SIBLINGS; do
+            case "$e" in */*) repo="$e"; s="${e#*/}" ;; *) repo="$ORG/$e"; s="$e" ;; esac
+            git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$repo.git" "../$s"
             echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
           done
       - uses: dtolnay/rust-toolchain@master
@@ -56,9 +58,10 @@ jobs:
       - name: Clone the sibling crates this one builds against (../<name>)
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
-          for s in $SIBLINGS; do
-            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
-              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
+          for e in $SIBLINGS; do
+            case "$e" in */*) repo="$e"; s="${e#*/}" ;; *) repo="$ORG/$e"; s="$e" ;; esac
+            git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$repo.git" "../$s"
             echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
           done
       - uses: dtolnay/rust-toolchain@stable
@@ -80,9 +83,10 @@ jobs:
       - name: Clone the sibling crates this one builds against (../<name>)
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
-          for s in $SIBLINGS; do
-            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
-              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
+          for e in $SIBLINGS; do
+            case "$e" in */*) repo="$e"; s="${e#*/}" ;; *) repo="$ORG/$e"; s="$e" ;; esac
+            git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$repo.git" "../$s"
             echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
           done
       - uses: dtolnay/rust-toolchain@stable
