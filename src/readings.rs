@@ -234,10 +234,17 @@ pub fn diff(ctx: &mut Ctx, spec: &str, from: Option<i64>, to: Option<i64>) -> Re
     let before = pick(from, before_default)?;
     let load = |r: &ReadingRow| custodian_kit::reading::load(&ctx.root().join(&r.record)).map_err(|e| Code::ReadingUnreadable.refuse(format!("#{}: {e}", r.seq)));
     let (a, b) = (load(&before)?, load(&after)?);
-    let d = custodian_kit::diff::compare(&a, &b);
     let mut ran = Ran::named(&name);
-    ran.print(custodian_kit::diff::render(&d));
-    ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, if d.is_empty() { "nothing moved" } else { "moved" }));
+    // two counts: what grew, file by file (custodian_kit's count compare); any other reading: rows and counts
+    if let (Some(x), Some(y)) = (&a.count, &b.count) {
+        let d = custodian_kit::reading::count::compare_counts(x, y);
+        ran.print(crate::counting::diff_table(&d, before.seq, after.seq));
+        ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, d.line("grew")));
+    } else {
+        let d = custodian_kit::diff::compare(&a, &b);
+        ran.print(custodian_kit::diff::render(&d));
+        ran.say(format!("compared {name}: #{} ({}) → #{} ({}): {}", before.seq, before.stamp, after.seq, after.stamp, if d.is_empty() { "nothing moved" } else { "moved" }));
+    }
     ran.outputs = vec![before.record, after.record];
     Ok(ran)
 }

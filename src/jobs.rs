@@ -67,9 +67,12 @@ fn write_job_file(dir: &Path, jf: &JobFile) -> Result<()> {
     write_whole(&dir.join(custodian_kit::jobs::job_file_name()), text.as_bytes())
 }
 
-/// A spec file in a job's folder (TOML, JSON or 1o), not its job file and not its closing receipt.
+/// The files custodian keeps in a job's folder besides its specs.
+pub const KEPT: &[&str] = &["closing.json", COUNTS_FILE, PASSENGER_FILE];
+
+/// A spec file in a job's folder (TOML, JSON or 1o), not its job file and not a file custodian keeps there.
 pub fn is_spec_file(p: &Path) -> bool {
-    p.is_file() && custodian_kit::reading::spec::SpecForm::of(p).is_some() && !custodian_kit::jobs::is_job_file(p) && p.file_name().is_none_or(|n| n != "closing.json")
+    p.is_file() && custodian_kit::reading::spec::SpecForm::of(p).is_some() && !custodian_kit::jobs::is_job_file(p) && p.file_name().and_then(|n| n.to_str()).is_none_or(|n| !KEPT.contains(&n))
 }
 
 fn folders(layout: &Layout, state: &str) -> Result<Vec<PathBuf>> {
@@ -134,6 +137,69 @@ pub fn plan(layout: &Layout, folder: &Path, kind: &str) -> Result<(Vec<Vec<StepP
         .map(|s| StepPlan { name: s.name, kind: s.kind, target: s.target, for_each: s.for_each, change_items: s.change_items, with: s.with, spec: None })
         .collect();
     Ok((runtime::stages_of(steps, false), t.summary))
+}
+
+/// The counts file in a job's folder: every count the job took, in order (custodian_kit's `Taken` records).
+pub const COUNTS_FILE: &str = "counts.json";
+
+/// The routes a job counts, when it counts: the job file's `routes`, else the template's `count_route` (its
+/// `{target}` filled), else the workspace; none when neither the job file nor the template says `count = true`.
+pub fn count_routes(layout: &Layout, jf: &JobFile, kind: &str) -> Vec<String> {
+    let t = if kind == "specs" { None } else { template(layout, kind).ok() };
+    if !jf.count.unwrap_or_else(|| t.as_ref().is_some_and(|t| t.count)) {
+        return Vec::new();
+    }
+    if !jf.routes.is_empty() {
+        return jf.routes.clone();
+    }
+    let target = jf.target.clone().unwrap_or_default();
+    vec![t.and_then(|t| t.count_route).map(|r| r.replace("{target}", &target)).unwrap_or_else(|| "*".to_string())]
+}
+
+fn taken(folder: &Path) -> Vec<custodian_kit::jobs::Taken> {
+    std::fs::read_to_string(folder.join(COUNTS_FILE)).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_default()
+}
+
+/// A count of each route at `label` (`open`, `close`), as readings of the job, recorded in the folder's counts file.
+pub fn take_counts(ctx: &mut Ctx, job: &str, folder: &Path, label: &str, routes: &[String], ran: &mut Ran) -> Result<()> {
+    if routes.is_empty() {
+        return Ok(());
+    }
+    let mut all = taken(folder);
+    for route in routes {
+        // each count its own declared line, with its own receipt, tagged with the job
+        let line = crate::surface::Line::Count(crate::surface::Count { args: vec![route.into()], tests: true, again: true, job: Some(job.into()), by: None });
+        let c = crate::facade::execute(ctx, &line, crate::cli::handle);
+        if c.code == 2 {
+            return Err(Code::StepFailed.refuse(format!("the {label} count of {route}: {}", c.said.last().cloned().unwrap_or_default())));
+        }
+        let name = c.receipt.name.clone();
+        let stem = c.receipt.outputs.first().and_then(|p| Path::new(p).file_stem()).map(|s| s.to_string_lossy().into_owned()).unwrap_or_default();
+        let reading = format!("readings/{name}/{stem}.json");
+        if !folder.join(&reading).is_file() {
+            return Err(Code::ReadingUnreadable.refuse(format!("{}: the {label} count wrote no reading into the job", folder.join(&reading).display())));
+        }
+        ran.say(format!("{label} count #{}: {}", c.receipt.seq, c.said.iter().find(|l| l.starts_with("counted ")).cloned().unwrap_or_default()));
+        all.push(custodian_kit::jobs::Taken { label: label.to_string(), route: route.clone(), reading });
+    }
+    write_whole(&folder.join(COUNTS_FILE), (serde_json::to_string_pretty(&all).map_err(|e| Code::Write.refuse(e))? + "\n").as_bytes())
+}
+
+/// The passenger checkpoints a job took, kept in its folder: `{ "open": id, "close": id }`.
+const PASSENGER_FILE: &str = "passenger.json";
+
+fn passenger_of(folder: &Path, at: &str) -> Option<String> {
+    let v: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(folder.join(PASSENGER_FILE)).ok()?).ok()?;
+    v.get(at)?.as_str().map(str::to_owned)
+}
+
+/// A passenger checkpoint at `at`, kept in the folder's passenger file.
+fn checkpoint(ctx: &mut Ctx, job: &str, folder: &Path, at: &str, ran: &mut Ran) -> Result<()> {
+    let Some(id) = crate::maint::passenger_checkpoint(ctx, job, &format!("custodian job {job} {at}"), ran)? else { return Ok(()) };
+    let file = folder.join(PASSENGER_FILE);
+    let mut v: serde_json::Value = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str(&t).ok()).unwrap_or_else(|| serde_json::json!({}));
+    v[at] = serde_json::Value::String(id);
+    write_whole(&file, (serde_json::to_string_pretty(&v).map_err(|e| Code::Write.refuse(e))? + "\n").as_bytes())
 }
 
 /// The ids of the jobs in `jobs/running`.
@@ -215,6 +281,9 @@ pub fn start(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     journal.event("job", Some(&id), &row.name, "running", &format!("{} → {}", layout.rel(&folder), layout.rel(&to)), None)?;
     ran.say(format!("started job {id} ({kind}): {} → {}", layout.rel(&folder), layout.rel(&to)));
     let (stages, summary) = plan(&layout, &to, &kind)?;
+    let routes = count_routes(&layout, &jf, &kind);
+    take_counts(ctx, &id, &to, "open", &routes, &mut ran)?;
+    checkpoint(ctx, &id, &to, "open", &mut ran)?;
     ran.say(format!("steps: {} in {} stage(s): {summary}", stages.iter().map(|s| s.len()).sum::<usize>(), stages.len()));
     let st = JobState { job: id.clone(), kind, target: jf.target, root: layout.root.clone(), exe: ctx.exe.clone(), folder: to.clone(), stages, next: 0, done: Vec::new(), again: ask.again };
     run_and_say(ctx, vec![st], ask.limit, &mut ran)?;
@@ -343,6 +412,15 @@ pub struct Closing {
     pub reused: Vec<Reused>,
     pub changed: Vec<Changed>,
     pub tests: Vec<Tested>,
+    /// From the job's counts (when it counted): each route from open to close, as custodian_kit reckons it.
+    #[serde(default)]
+    pub lines_touched: Vec<custodian_kit::jobs::Touched>,
+    /// code_passenger's checkpoints of the tree at open and at close, when it is installed: a job's before and after
+    /// as two versions in the passenger store (`code-passenger passenger checkout <id>` restores either).
+    #[serde(default)]
+    pub passenger_open: Option<String>,
+    #[serde(default)]
+    pub passenger_close: Option<String>,
     pub receipts: Vec<i64>,
 }
 
@@ -401,6 +479,17 @@ pub fn closing(ctx: &Ctx, row: &JobRow) -> Result<Closing> {
         reused,
         changed,
         tests,
+        lines_touched: {
+            let folder = ctx.root().join(&row.folder);
+            let t = taken(&folder);
+            if t.len() >= 2 {
+                custodian_kit::jobs::lines_touched_of(&folder, &t)?
+            } else {
+                Vec::new()
+            }
+        },
+        passenger_open: passenger_of(&ctx.root().join(&row.folder), "open"),
+        passenger_close: passenger_of(&ctx.root().join(&row.folder), "close"),
         receipts: receipts.iter().map(|r| r.seq).collect(),
     })
 }
@@ -439,6 +528,15 @@ pub fn page(c: &Closing) -> String {
     for t in &c.tests {
         s.push_str(&format!("- {} {}: {} passed, {} failed, {} ignored, {} ms (#{})\n", t.package, t.target, t.passed, t.failed, t.ignored, t.millis, t.seq));
     }
+    if !c.lines_touched.is_empty() {
+        s.push_str(&format!("\n## lines touched ({})\n\n", c.lines_touched.len()));
+        for t in &c.lines_touched {
+            s.push_str(&format!("- {} ({}): before {} → after {} (`{}`)\n", t.line, t.route, t.before_digest, t.after_digest, t.diff));
+        }
+    }
+    if c.passenger_open.is_some() || c.passenger_close.is_some() {
+        s.push_str(&format!("\n## the tree, as code_passenger keeps it\n\n- at open: {}\n- at close: {}\n", c.passenger_open.as_deref().unwrap_or("-"), c.passenger_close.as_deref().unwrap_or("-")));
+    }
     s.push_str(&format!("\n## receipts\n\n{}\n", c.receipts.iter().map(|n| format!("#{n}")).collect::<Vec<_>>().join(", ")));
     s
 }
@@ -447,6 +545,11 @@ pub fn page(c: &Closing) -> String {
 pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let layout = ctx.layout()?.clone();
     let (mut row, folder) = running(ctx, which)?;
+    let mut counted = Ran::default();
+    let jf = job_file(&folder)?;
+    let routes = count_routes(&layout, &jf, &row.kind);
+    take_counts(ctx, &row.id, &folder, "close", &routes, &mut counted)?;
+    checkpoint(ctx, &row.id, &folder, "close", &mut counted)?;
     row.closed_utc = Some(now_utc());
     let c = closing(ctx, &row)?;
     let folder_name = folder.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
@@ -462,11 +565,15 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     journal.put_job(&row)?;
     journal.event("job", Some(&row.id), &row.name, "done", &format!("{} → {}", layout.rel(&folder), layout.rel(&to)), None)?;
     let mut ran = Ran::named(&row.id);
+    ran.said.extend(counted.said);
     ran.job = Some(row.id.clone());
     ran.print(md);
     let closing_md = layout.path::<layout::Closing>(&[("state", "done"), ("job", &folder_name), ("ext", "md")])?;
     let closing_json = layout.path::<layout::Closing>(&[("state", "done"), ("job", &folder_name), ("ext", "json")])?;
     ran.say(format!("closed job {}: {} specs read, {} reused, {} changed, {} test lines", row.id, c.specs_read.len(), c.reused.len(), c.changed.iter().filter(|x| x.moved).count(), c.tests.len()));
+    for t in &c.lines_touched {
+        ran.say(format!("lines touched: {} ({})", t.line, t.route));
+    }
     ran.say(format!("closing receipt: {} (+ {})", layout.rel(&closing_md), layout.rel(&closing_json)));
     ran.say(format!("moved: {} → {}", layout.rel(&folder), layout.rel(&to)));
     ran.outputs = vec![layout.rel(&closing_md), layout.rel(&closing_json)];
@@ -580,6 +687,8 @@ pub fn run_queue(ctx: &mut Ctx, again: bool, ran: &mut Ran) -> Result<()> {
         ctx.journal()?.put_job(&row)?;
         ctx.journal()?.event("job", Some(&id), &row.name, "running", &layout.rel(&to), None)?;
         let (stages, _) = plan(&layout, &to, &kind)?;
+        let routes = count_routes(&layout, &jf, &kind);
+        take_counts(ctx, &id, &to, "open", &routes, ran)?;
         ran.say(format!("queued job {id} ({kind}, {}): {} stage(s)", crate::words::JobKind::of_word(&kind).map(|k| format!("{:?}", k.qos())).unwrap_or_default(), stages.len()));
         states.push(JobState { job: id, kind, target: jf.target, root: layout.root.clone(), exe: ctx.exe.clone(), folder: to, stages, next: 0, done: Vec::new(), again });
     }

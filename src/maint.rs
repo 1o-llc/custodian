@@ -60,8 +60,9 @@ pub fn check(ctx: &mut Ctx, which: &str, job: Option<String>) -> Result<Ran> {
 
 /// `custodian annotate [--from CHECK_JSON] [--apply]`: the plan of the maintenance attributes the receipts call for
 /// (`#[timed_test(max)]` from measured times, `#[reads_env]` where a check found a bare read, candidates listed),
-/// read from the latest check's receipt unless `--from` names another. `--apply` hands it to code_passenger, which
-/// has no line that places an attribute yet, so it is refused with its code and the plan is kept.
+/// read from the latest check's receipt unless `--from` names another. `--apply` hands each line marked to apply to
+/// code_passenger's `attr place` (code_passenger writes; custodian never edits source), one declared line and one
+/// receipt each; candidates are listed and never placed.
 pub fn annotate(ctx: &mut Ctx, from: Option<&str>, apply: bool) -> Result<Ran> {
     let mut ran = Ran::named("annotate");
     let rule_text = match ctx.mode.project() {
@@ -92,7 +93,34 @@ pub fn annotate(ctx: &mut Ctx, from: Option<&str>, apply: bool) -> Result<Ran> {
         ran.outputs.push(p.layout.rel(&f));
     }
     if apply {
-        return Err(Code::NoWriterLine.refuse("annotate --apply: code_passenger's writers are file headers (annotate), #[cfg] gates and manifest features (gate); none places an attribute from a plan. The plan is kept."));
+        let root = ctx.root().to_path_buf();
+        let items: Vec<(String, u32, String)> = {
+            let ws = ctx.workspace(&custodian_kit::api::Scope { tests: true, ..Default::default() }, Resolving::Free)?;
+            ws.klepto().items.iter().filter_map(|i| Some((ws.root.join(&i.location.path).strip_prefix(&ws.root).ok()?.to_string_lossy().into_owned(), i.location.line?, i.id.clone()))).collect()
+        };
+        for ins in plan.inserts.iter().filter(|i| i.apply) {
+            // the item the line goes above: the one klepto places nearest it (klepto's line is the item's first
+            // attribute; the plan's is the declaration), within three lines
+            let item = items
+                .iter()
+                .filter(|(f, l, _)| (f == &ins.file || f.ends_with(&ins.file)) && l.abs_diff(ins.line) <= 3)
+                .min_by_key(|(_, l, _)| l.abs_diff(ins.line))
+                .map(|(_, _, id)| id.clone());
+            let Some(item) = item else {
+                ran.say(format!("{}:{}: no item declared there; `{}` not placed", ins.file, ins.line, ins.text));
+                ran.code = 1;
+                continue;
+            };
+            let line = passenger(&root, ["attr", "place", "--file", ins.file.as_str(), "--item", item.as_str(), "--line", ins.text.as_str()]);
+            let run = run_passenger(ctx, "code-passenger.attr", line, &format!("attr place {item}"), None)?;
+            ran.say(format!("{} → {:?} ({}) #{}", run.receipt.line, run.code, run.receipt.reason, run.receipt.seq));
+            if !run.accepted {
+                ran.code = 1;
+            }
+        }
+        for c in &plan.candidates {
+            ran.say(format!("candidate, not placed: {}:{} {}", c.file, c.line, c.text));
+        }
     }
     Ok(ran)
 }
@@ -145,8 +173,7 @@ pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
         let root = ctx.root().to_path_buf();
         for pkg in spec.keys() {
             let line = custodian_kit::exec::passenger_gate(&root, &f, true).words(["--package", pkg.as_str()]);
-            let ext = External::of("code-passenger.gate", &line)?.in_dir(&root);
-            let run = facade::run_external(ctx, ext, ExternalNames { name: format!("gate {pkg}"), job: None, outputs: vec![ctx.rel(&f)] }, |_| {})?;
+            let run = run_passenger(ctx, "code-passenger.gate", line, &format!("gate {pkg}"), None)?;
             ran.say(format!("{} → {:?} ({}) #{}", run.receipt.line, run.code, run.receipt.reason, run.receipt.seq));
             if !run.accepted {
                 ran.code = 1;
@@ -154,4 +181,43 @@ pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
         }
     }
     Ok(ran)
+}
+
+/// `code-passenger --root ROOT WORD...`: custodian_kit's declared code-passenger line.
+pub fn passenger<'a>(root: &std::path::Path, words: impl IntoIterator<Item = &'a str>) -> custodian_kit::exec::PassengerAtRooted<custodian_kit::exec::CodePassenger> {
+    custodian_kit::exec::CodePassenger::at_root(root.as_os_str()).words(words.into_iter().map(std::ffi::OsString::from).collect::<Vec<_>>())
+}
+
+/// Whether `code-passenger` is on PATH.
+pub fn passenger_installed() -> bool {
+    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("code-passenger").is_file()))
+}
+
+/// A code-passenger line run through the executor with custodian's receipt; code-passenger is told a runner keeps
+/// it (`CODE_PASSENGER_JOB`), so it does not keep a second one.
+pub fn run_passenger(ctx: &mut Ctx, logical_id: &str, line: custodian_kit::exec::PassengerAtRooted<custodian_kit::exec::CodePassenger>, name: &str, job: Option<String>) -> Result<facade::ExternalRun> {
+    let root = ctx.root().to_path_buf();
+    let ext = External::of(logical_id, &line)?.in_dir(&root).env("CODE_PASSENGER_JOB", job.clone().unwrap_or_else(|| "custodian".into()));
+    facade::run_external(ctx, ext, ExternalNames { name: name.into(), job, outputs: Vec::new() }, |_| {})
+}
+
+/// A passenger checkpoint of the tree (the store made first when the workspace has none): its id, from
+/// `checkpoint <id> on <branch>`. None when code-passenger is not installed.
+pub fn passenger_checkpoint(ctx: &mut Ctx, job: &str, note: &str, ran: &mut Ran) -> Result<Option<String>> {
+    if !passenger_installed() {
+        ran.say("code-passenger is not on PATH: no passenger checkpoint");
+        return Ok(None);
+    }
+    let root = ctx.root().to_path_buf();
+    let init = run_passenger(ctx, "code-passenger.passenger", passenger(&root, ["passenger", "init"]), "passenger init", Some(job.into()))?;
+    if !init.accepted {
+        return Err(facade::not_accepted(&init));
+    }
+    let run = run_passenger(ctx, "code-passenger.passenger", passenger(&root, ["passenger", "checkpoint", "--note", note]), "passenger checkpoint", Some(job.into()))?;
+    if !run.accepted {
+        return Err(facade::not_accepted(&run));
+    }
+    let id = run.stdout.lines().find_map(|l| l.strip_prefix("checkpoint ")).and_then(|r| r.split_whitespace().next()).map(str::to_owned);
+    ran.say(format!("passenger checkpoint {} ({note}) #{}", id.as_deref().unwrap_or("?"), run.receipt.seq));
+    Ok(id)
 }

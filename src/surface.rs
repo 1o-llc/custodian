@@ -33,6 +33,7 @@ use xccute_runtime::{ExitStatusDecision, ExitStatusPolicy, RuntimeExitStatus};
 #[composite(command = "triage", ty = Triage, init = "target")]
 #[composite(command = "bundle", ty = Bundle, init = "target")]
 #[composite(command = "sweep", ty = Sweep, init = "dir")]
+#[composite(command = "count", ty = Count)]
 #[composite(command = "serve", ty = Serve)]
 #[composite(command = "stop", ty = Stop)]
 #[composite(command = "watch", ty = Watch)]
@@ -283,6 +284,33 @@ pub struct Sweep {
     pub dir: OsString,
 }
 
+/// `custodian count [ROUTE] [--by crate|language] [--tests] [--again]`, `count report A B`, `count history [ROUTE]`:
+/// files, lines, code, comments and blanks (custodian_kit's `count` reading kind, on tokei), per crate or language,
+/// the tests' share; two counts compared; every count of a route.
+#[allow(clippy::duplicated_attributes)]
+#[derive(SimpleSubCommand, Debug, Clone, Default)]
+#[subcommand(segment = "count")]
+#[exit_status(code = 0, word = "done")]
+#[exit_status(code = 1, word = "findings")]
+#[exit_status(code = 2, word = "refused")]
+#[validate(with = "count_valid")]
+pub struct Count {
+    /// A route; or `report A B`; or `history [ROUTE]`.
+    #[arg(positional, each = count_word)]
+    pub args: Vec<OsString>,
+    #[builder(into)]
+    #[arg(kv = "--by", each = by_word)]
+    pub by: Option<OsString>,
+    #[arg(flag = "--tests")]
+    pub tests: bool,
+    #[arg(flag = "--again")]
+    pub again: bool,
+    /// The job the count is part of (a job's own counts at open and close).
+    #[builder(into)]
+    #[arg(kv = "--job", each = plain)]
+    pub job: Option<OsString>,
+}
+
 /// `custodian serve`: the resident, on the project's owner-only socket, until `custodian stop`.
 #[allow(clippy::duplicated_attributes)]
 #[derive(SimpleSubCommand, Debug, Clone, Default)]
@@ -423,6 +451,26 @@ fn observe_word(field: &str, word: &OsStr) -> CommandValidationResult {
 fn check_word(field: &str, word: &OsStr) -> CommandValidationResult {
     let words: Vec<&str> = maintenance::runner::CheckName::ALL.iter().map(|c| c.word()).collect();
     one_of(field, word, &words)
+}
+
+fn count_word(field: &str, word: &OsStr) -> CommandValidationResult {
+    if word.is_empty() || (word.to_string_lossy().starts_with('-') && word != "-") {
+        return refuse(field, format!("{word:?} is not a route, `report` or `history`"));
+    }
+    Ok(())
+}
+
+fn count_valid(line: &Count) -> CommandValidationResult {
+    match line.args.first().and_then(|a| a.to_str()) {
+        Some("report") if line.args.len() != 3 => refuse("args", "count report names two counts: count report A B".into()),
+        Some("history") if line.args.len() > 2 => refuse("args", "count history [ROUTE]".into()),
+        Some(w) if w != "report" && w != "history" && line.args.len() > 1 => refuse("args", "count names one route".into()),
+        _ => Ok(()),
+    }
+}
+
+fn by_word(field: &str, word: &OsStr) -> CommandValidationResult {
+    one_of(field, word, &["crate", "language"])
 }
 
 fn only_word(field: &str, word: &OsStr) -> CommandValidationResult {
@@ -586,6 +634,7 @@ lines! {
     Triage(Triage) = "triage", "triage CODE|@LOGFILE" => read_triage;
     Bundle(Bundle) = "bundle", "bundle ROUTE|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal] [--again]" => read_bundle;
     Sweep(Sweep) = "sweep", "sweep DIR" => read_sweep;
+    Count(Count) = "count", "count [ROUTE] [--by crate|language] [--tests] [--again] [--job ID] | count report A B | count history [ROUTE]" => read_count;
     Serve(Serve) = "serve", "serve" => read_serve;
     Stop(Stop) = "stop", "stop" => read_stop;
     Watch(Watch) = "watch", "watch [--observe failed|progress|all] [--since SEQ] [--follow]" => read_watch;
@@ -682,6 +731,15 @@ fn read_sweep(w: &mut Words) -> Result<Sweep> {
     Ok(Sweep { dir: need(w, "directory", "sweep")? })
 }
 
+fn read_count(w: &mut Words) -> Result<Count> {
+    let (by, tests, again, job) = (kv(w, "--by")?, w.flag("--tests"), w.flag("--again"), kv(w, "--job")?);
+    let mut args = Vec::new();
+    while let Some(a) = pos(w) {
+        args.push(a);
+    }
+    Ok(Count { by, tests, again, job, args })
+}
+
 fn read_serve(_: &mut Words) -> Result<Serve> {
     Ok(Serve)
 }
@@ -744,6 +802,8 @@ mod tests {
             Custodian::triage("@box.log").argv(),
             Custodian::bundle("crate:core_lib").no_tests().no_feature("serde").only("src").redact_level("secret").again().argv(),
             Custodian::sweep("vendor").argv(),
+            Custodian::count().args(["crate:core_lib"]).by("language").tests().again().job("j-4").argv(),
+            Custodian::count().args(["report", "3", "9"]).argv(),
             Custodian::serve().argv(),
             Custodian::stop().argv(),
             Custodian::watch().observe("all").since("4").follow().argv(),

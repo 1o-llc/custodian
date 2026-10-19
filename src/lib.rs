@@ -15,6 +15,7 @@
 pub mod bundling;
 pub mod cli;
 pub mod codes;
+pub mod counting;
 pub mod decide;
 pub mod diag;
 pub mod digest;

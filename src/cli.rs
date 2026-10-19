@@ -80,6 +80,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::Triage(l) => crate::diag::triage(ctx, &s(&l.target)),
         Line::Bundle(l) => crate::bundling::bundle(ctx, l),
         Line::Sweep(l) => readings_sweep(ctx, &s(&l.dir)),
+        Line::Count(l) => crate::counting::count(ctx, l),
         Line::Serve(_) => Err(Code::ServeRunning.refuse("serve runs in the foreground: custodian serve")),
         Line::Stop(_) => Ok(Ran { said: vec!["no resident answers on this project's socket: nothing to stop".into()], ..Ran::named("stop") }),
         Line::Watch(l) => crate::observe::watch(ctx, l),
@@ -208,14 +209,48 @@ pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
     ctx.mode = Mode::Journaled(crate::mode::Project { layout: layout.clone(), settings });
     ctx.journal = Some(journal);
     if macros {
-        ran.say(format!(
-            "--macros: not added. code_passenger's cargo editing (gate --spec) marks existing dependencies optional and sets features; it has no line that adds a dependency, and custodian never edits a manifest itself. The line to add by hand: maintenance = {{ path = \"{}\" }}",
-            {
-                let p = Path::new(env!("CARGO_MANIFEST_DIR")).join("../maintenance_macros/crates/maintenance");
-                p.canonicalize().unwrap_or(p).display().to_string()
-            }
-        ));
-        ran.code = 1;
+        macros_by_passenger(ctx, &mut ran)?;
     }
     Ok(ran)
+}
+
+/// Where the maintenance crate is, until it is on crates.io.
+pub const MAINTENANCE_PATH: &str = "/Users/jameshunt/James/Code/maintenance_macros/crates/maintenance";
+
+/// `init --macros`: `maintenance` added to every workspace crate by code_passenger's `dep add` (by path for now),
+/// and `big-bad-bool` to each crate that declares a level word (`sensitivity_levels!`); one declared line and one
+/// receipt each. custodian edits no manifest itself.
+fn macros_by_passenger(ctx: &mut Ctx, ran: &mut Ran) -> Result<()> {
+    if !crate::maint::passenger_installed() {
+        ran.say("--macros: code-passenger is not on PATH; nothing added");
+        ran.code = 1;
+        return Ok(());
+    }
+    let root = ctx.root().to_path_buf();
+    let (crates, words): (Vec<String>, Vec<String>) = {
+        let ws = ctx.workspace(&custodian_kit::api::Scope::default(), custodian_kit::api::Resolving::Free)?;
+        let k = ws.klepto();
+        let mut crates: Vec<String> = k.packages.values().map(|p| p.cargo_name.clone()).collect();
+        crates.sort();
+        let mut words: Vec<String> = k
+            .macros_inv
+            .iter()
+            .filter(|m| m.name == "sensitivity_levels")
+            .filter_map(|m| k.packages.values().find(|p| ws.root.join(&m.location.path).starts_with(&p.root)).map(|p| p.cargo_name.clone()))
+            .collect();
+        words.sort();
+        words.dedup();
+        (crates, words)
+    };
+    let mut adds: Vec<(String, Vec<String>)> = crates.iter().map(|c| (c.clone(), vec!["dep".into(), "add".into(), c.clone(), "maintenance".into(), "--path".into(), MAINTENANCE_PATH.into()])).collect();
+    adds.extend(words.iter().map(|c| (c.clone(), vec!["dep".into(), "add".into(), c.clone(), "big-bad-bool@0.1.1".into()])));
+    for (krate, words) in adds {
+        let line = crate::maint::passenger(&root, words.iter().map(String::as_str));
+        let run = crate::maint::run_passenger(ctx, "code-passenger.dep", line, &format!("dep add {krate}"), None)?;
+        ran.say(format!("--macros: {} → {:?} ({}) #{}", run.receipt.line, run.code, run.receipt.reason, run.receipt.seq));
+        if !run.accepted {
+            ran.code = 1;
+        }
+    }
+    Ok(())
 }

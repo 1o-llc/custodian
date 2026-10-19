@@ -105,8 +105,6 @@ fn a_refused_line_says_its_code_and_is_kept() {
     assert!(r.out.contains("→ 2 (refused"), "the refusal has its receipt: {}", r.out);
     let r = run(&d, &["run", "nothing-here"]);
     assert!(r.out.contains("[CUST1201]"), "{}", r.all());
-    let out = ok(&d, &["init", "--macros"], 1);
-    assert!(out.contains("--macros: not added"), "{out}");
 }
 
 #[test]
@@ -210,8 +208,6 @@ fn check_annotate_and_features_route_to_their_programs() {
     let ann = ok(&d, &["annotate"], 0);
     assert!(ann.contains(&format!("from {json}")), "the plan reads the latest check receipt: {ann}");
     assert!(d.join(".custodian/data/plans/annotate.toml").is_file());
-    let apply = run(&d, &["annotate", "--apply"]);
-    assert!(apply.out.contains("[CUST1803]"), "{}", apply.all());
     let feat = ok(&d, &["features"], 0);
     assert!(feat.contains("code_passenger spec: .custodian/data/plans/klepto.toml"), "{feat}");
 }
@@ -335,4 +331,116 @@ fn the_pre_edit_hook_prints_what_a_file_reaches() {
     assert!(out.contains("binaries this file reaches:") && out.contains("- app: appd"), "{out}");
     assert!(out.contains("read reach-crates_core_lib_src_lib_rs (reach crates/core_lib/src/lib.rs)"), "{out}");
     assert!(out.contains("free mode"), "{out}");
+}
+
+fn passenger_here() -> bool {
+    let on = custodian::maint::passenger_installed();
+    if !on {
+        eprintln!("code-passenger is not on PATH: this test's writing half is skipped");
+    }
+    on
+}
+
+#[test]
+fn a_count_is_a_reading_with_history_reports_and_growth() {
+    let d = fixture("count");
+    ok(&d, &["init"], 0);
+    let one = ok(&d, &["count", "--tests"], 0);
+    assert!(one.contains("## by crate") && one.contains("| core_lib |") && one.contains("test lines"), "{one}");
+    assert!(one.contains("counted *: ") && one.contains("digest sha256:"), "{one}");
+    let a = seq_of(&one);
+    let by_lang = ok(&d, &["count", "crate:core_lib", "--by", "language"], 0);
+    assert!(by_lang.contains("## by language") && by_lang.contains("| Rust |"), "{by_lang}");
+    let reused = ok(&d, &["count", "--tests"], 0);
+    assert!(reused.contains("reused"), "the same count over the same code is a reuse: {reused}");
+    let lib = d.join("crates/core_lib/src/lib.rs");
+    std::fs::write(&lib, std::fs::read_to_string(&lib).unwrap() + "\npub fn grown() -> u8 {\n    1\n}\n").unwrap();
+    let two = ok(&d, &["count"], 0);
+    let b = seq_of(&two);
+    let diff = ok(&d, &["diff", "count-workspace"], 0);
+    assert!(diff.contains("grew: +4 −0 across 1 files in 1 crates"), "{diff}");
+    let hist = ok(&d, &["count", "history"], 0);
+    let (pa, pb) = (hist.find(&format!("| #{a} |")).unwrap(), hist.find(&format!("| #{b} |")).unwrap());
+    assert!(pb < pa, "newest first: {hist}");
+    let only = ok(&d, &["count", "history", "core_lib"], 0);
+    assert!(only.contains("of crate:core_lib") && !only.contains(&format!("| #{a} |")), "{only}");
+    let rep = ok(&d, &["count", "report", &a.to_string(), &b.to_string()], 0);
+    assert!(rep.contains(&format!("# count report: #{a} → #{b} (*)")) && rep.contains("| digest | sha256:") && rep.contains("| commit |"), "{rep}");
+    assert!(rep.contains("- lines: +4 −0"), "{rep}");
+    let file = rep.lines().find_map(|l| l.strip_prefix("report: ")).unwrap().split(" (+ ").next().unwrap().to_string();
+    assert!(d.join(&file).is_file(), "the report is a reading: {file}");
+    let today = receipt(&d, a)["utc"].as_str().unwrap()[..10].to_string();
+    let amb = run(&d, &["count", "report", &today, &b.to_string()]);
+    assert_eq!(amb.code, 2);
+    assert!(amb.out.contains("[CUST1205]"), "a date that fits several counts is refused: {}", amb.all());
+    let none = run(&d, &["count", "report", "nothing", &b.to_string()]);
+    assert!(none.out.contains("[CUST1204]"), "{}", none.all());
+}
+
+#[test]
+fn a_job_that_counts_says_the_lines_it_touched() {
+    let d = fixture("count-job");
+    ok(&d, &["agent", "init"], 0);
+    let q = d.join(".custodian/state/jobs/queued/grow");
+    std::fs::create_dir_all(&q).unwrap();
+    std::fs::write(q.join("v1.job.1o.job"), "{\n  job {\n    name \"grow\"\n    kind \"specs\"\n    count true\n  }\n}\n").unwrap();
+    spec(&q, "a.toml", "grow_env", "readers_of_env", "FIX_TOKEN");
+    let start = ok(&d, &["job", "start", "grow"], 0);
+    assert!(start.contains("open count #"), "{start}");
+    let main = d.join("crates/app/src/main.rs");
+    std::fs::write(&main, std::fs::read_to_string(&main).unwrap() + "\npub fn more() -> u8 {\n    2\n}\n").unwrap();
+    let close = ok(&d, &["job", "close"], 0);
+    assert!(close.contains("lines touched: job: +4 −0 across 1 files in 1 crates (*)"), "{close}");
+    let brief = ok(&d, &["job", "brief", "grow"], 0);
+    assert!(brief.contains("## lines touched (1)") && brief.contains("counts/job-workspace.diff.json"), "{brief}");
+    let c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(d.join(".custodian/state/jobs/done/grow/closing.json")).unwrap()).unwrap();
+    assert_eq!(c["lines_touched"][0]["moved"]["added"]["lines"], 4);
+    let rep = ok(&d, &["count", "report", "grow:open", "grow:close"], 0);
+    assert!(rep.contains("- lines: +4 −0"), "{rep}");
+    let amb = run(&d, &["count", "report", "grow", "grow:close"]);
+    assert!(amb.out.contains("[CUST1205]") && amb.out.contains("<job>:open"), "{}", amb.all());
+    if passenger_here() {
+        assert!(c["passenger_open"].as_str().is_some() && c["passenger_close"].as_str().is_some(), "{c}");
+        assert!(brief.contains("## the tree, as code_passenger keeps it"), "{brief}");
+    }
+}
+
+#[test]
+fn init_macros_annotate_apply_and_features_apply_write_through_code_passenger() {
+    if !passenger_here() {
+        return;
+    }
+    let d = fixture("writers");
+    // a dependency only one public item of core_lib reaches: feature-eligible
+    std::fs::create_dir_all(d.join("crates/helper/src")).unwrap();
+    std::fs::write(d.join("crates/helper/Cargo.toml"), "[package]\nname = \"helper\"\nversion = \"0.1.0\"\nedition = \"2021\"\n").unwrap();
+    std::fs::write(d.join("crates/helper/src/lib.rs"), "pub fn shout(s: &str) -> String {\n    s.to_uppercase()\n}\n").unwrap();
+    let toml = d.join("crates/core_lib/Cargo.toml");
+    std::fs::write(&toml, std::fs::read_to_string(&toml).unwrap() + "\n[dependencies]\nhelper = { path = \"../helper\" }\n").unwrap();
+    let lib = d.join("crates/core_lib/src/lib.rs");
+    std::fs::write(&lib, std::fs::read_to_string(&lib).unwrap() + "\npub fn loud(s: &str) -> String {\n    helper::shout(s)\n}\n").unwrap();
+    std::fs::remove_file(d.join("Cargo.lock")).ok();
+
+    let init = ok(&d, &["init", "--macros"], 0);
+    assert!(init.contains("dep add app maintenance --path") && init.contains("dep add core_lib maintenance --path"), "{init}");
+    for c in ["app", "core_lib", "helper"] {
+        assert!(std::fs::read_to_string(d.join(format!("crates/{c}/Cargo.toml"))).unwrap().contains("maintenance = { path = "), "{c}");
+    }
+
+    let line = std::fs::read_to_string(&lib).unwrap().lines().position(|l| l.contains("fn config_names")).unwrap() + 1;
+    std::fs::create_dir_all(d.join(".maintenance/timings")).unwrap();
+    std::fs::write(
+        d.join(".maintenance/timings/latest.jsonl"),
+        format!("{{\"test\":\"core_lib::tests::config_names\",\"file\":\"crates/core_lib/src/lib.rs\",\"line\":{line},\"ms\":40,\"max_ms\":2000,\"class\":null,\"threshold_from\":\"default\",\"outcome\":\"passed\",\"at_unix_ms\":1}}\n"),
+    )
+    .unwrap();
+    let ann = ok(&d, &["annotate", "--apply"], 0);
+    assert!(ann.contains("attr place --file crates/core_lib/src/lib.rs --item core_lib::tests::config_names"), "{ann}");
+    let text = std::fs::read_to_string(&lib).unwrap();
+    assert!(text.contains("    #[timed_test(max = \"250ms\")]\n    #[test]\n    fn config_names()"), "{text}");
+
+    let feat = ok(&d, &["features", "--apply"], 0);
+    assert!(feat.contains("**helper** in core_lib: feature-eligible") && feat.contains("gate --spec") && feat.contains("--write --package core_lib"), "{feat}");
+    let toml = std::fs::read_to_string(&toml).unwrap();
+    assert!(toml.contains("optional = true") && toml.contains("[features]"), "{toml}");
 }

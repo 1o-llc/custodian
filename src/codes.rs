@@ -22,6 +22,8 @@ liaise_proc_macro::liaise_codes! {
         SpecNotFound = 1201 => "no spec of that name or path",
         NothingToDiff = 1202 => "a diff needs two readings of the spec",
         ReadingUnreadable = 1203 => "a reading the journal names cannot be read back",
+        CountNotFound = 1204 => "no count by that name",
+        CountAmbiguous = 1205 => "the name fits more than one count",
 
         // 13xx: the journal and the folder
         Journal = 1301 => "the journal cannot be read or written",
