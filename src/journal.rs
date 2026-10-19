@@ -185,6 +185,7 @@ fn receipt_of(r: &Row<'_>) -> rusqlite::Result<Receipt> {
         job: r.get("job")?,
         reused_seq: r.get("reused_seq")?,
         millis: r.get("millis")?,
+        runner: r.get("runner")?,
     })
 }
 
@@ -254,6 +255,11 @@ impl Journal {
             let names = st.query_map([], |r| r.get::<_, String>(0)).map_err(jerr)?;
             names.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)?
         };
+        // a journal from before the receipt's runner field gets the column, every older run a line run
+        let has_runner: bool = conn.prepare("SELECT 1 FROM pragma_table_info('runs') WHERE name = 'runner'").and_then(|mut st| st.exists([])).map_err(jerr)?;
+        if !has_runner {
+            conn.execute_batch("ALTER TABLE runs ADD COLUMN runner TEXT NOT NULL DEFAULT 'line'").map_err(jerr)?;
+        }
         for (col, ty) in JOB_COLUMNS {
             if !have.iter().any(|h| h == col) {
                 conn.execute_batch(&format!("ALTER TABLE jobs ADD COLUMN {col} {ty}")).map_err(jerr)?;
@@ -283,8 +289,8 @@ impl Journal {
         let file = file_for(n)?;
         write_whole(&file, serde_json::to_string_pretty(r).map_err(jerr)?.as_bytes())?;
         tx.execute(
-            "INSERT INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis)
-             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21)",
+            "INSERT INTO runs (seq, utc, command, name, spec, spec_hash, index_key, code_digest, job, reused_seq, line, exit_code, accepted, disposition, reason, plan_id, plan_digest, operation_digest, receipt_digest, outputs, millis, runner)
+             VALUES (?1, ?2, ?3, ?4, ?5, ?6, ?7, ?8, ?9, ?10, ?11, ?12, ?13, ?14, ?15, ?16, ?17, ?18, ?19, ?20, ?21, ?22)",
             params![
                 n,
                 r.utc,
@@ -307,6 +313,7 @@ impl Journal {
                 r.receipt_digest,
                 serde_json::to_string(&r.outputs).map_err(jerr)?,
                 r.millis,
+                r.runner,
             ],
         )
         .map_err(jerr)?;
@@ -542,6 +549,7 @@ mod tests {
             job: None,
             reused_seq: None,
             millis: 3,
+            runner: custodian_kit::receipts::RUNNER_IN_PROCESS.into(),
         }
     }
 

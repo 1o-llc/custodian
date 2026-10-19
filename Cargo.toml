@@ -24,9 +24,9 @@ path = "src/main.rs"
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 custodian_kit = { version = "0.1.0", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
-task_history = { version = "0.1.0", path = "../task_history" }
+task_history = "0.1.0"
 # the checks and the timing report, run as maintenance's own declared lines
-maintenance = { version = "0.1.0", path = "../maintenance_macros/crates/maintenance", features = ["check", "runner"] }
+maintenance = { version = "0.1.0", features = ["check", "runner"] }
 
 # every subcommand a declared line; every run executed through the runtime with a receipt
 simple_impl_derive = "0.2.6"

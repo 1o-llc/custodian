@@ -129,6 +129,8 @@ pub struct Ctx {
     held: Vec<HeldWorkspace>,
     /// Lines a run shows while it runs (a test's progress): stdout on the command line, the reply in the resident.
     pub live: Box<dyn FnMut(&str) + Send>,
+    /// This run is the resident's (`custodian serve`): a job's readings run as the kit's declared lines.
+    pub in_resident: bool,
 }
 
 impl Ctx {
@@ -140,7 +142,7 @@ impl Ctx {
             Mode::Free { .. } => None,
         };
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("custodian"));
-        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")) })
+        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")), in_resident: false })
     }
 
     pub fn root(&self) -> &Path {
@@ -290,6 +292,8 @@ fn receipt_of(plan: &RuntimeOperationPlan, rr: &RuntimeOperationReceipt, preview
         job: ran.job.clone(),
         reused_seq: ran.reused_seq,
         millis,
+        // a custodian line is answered in this process; finish_external marks a program's run as the line runner's
+        runner: custodian_kit::receipts::RUNNER_IN_PROCESS.into(),
     }
 }
 
@@ -408,6 +412,7 @@ pub fn finish_external(ctx: &mut Ctx, ext: &External, names: ExternalNames, code
     let ran = Ran { name: names.name, outputs: names.outputs, job: names.job, ..Ran::default() };
     let mut receipt = receipt_of(&plan, &rr, &ext.preview, &ran, millis);
     receipt.command = ext.logical_id.clone();
+    receipt.runner = custodian_kit::receipts::RUNNER_LINE.into();
     let receipt_file = ctx.keep(&mut receipt)?;
     Ok(ExternalRun { code, accepted, stdout, stderr, millis, receipt, receipt_file })
 }

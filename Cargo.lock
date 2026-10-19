@@ -223,6 +223,8 @@ checksum = "72f5acc6cb2ba439de613abc23857ec3d78374d8ed5ac84e9d11336e87da8649"
 [[package]]
 name = "bundles"
 version = "0.2.3"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3da29ffff470f372009d61142162d8c712cebbc5644d350b859269efaa2dff2f"
 dependencies = [
  "pathgen",
  "regex",
@@ -570,12 +572,13 @@ dependencies = [
  "core-1o",
  "flaga_solver",
  "globset",
- "klepto 0.3.1",
+ "klepto",
  "liaise",
  "maintenance",
  "pathgen",
  "quote",
  "rusqlite",
+ "scope",
  "serde",
  "serde_json",
  "simple_impl_derive",
@@ -1297,25 +1300,6 @@ dependencies = [
 [[package]]
 name = "klepto"
 version = "0.3.1"
-dependencies = [
- "blake3",
- "cargo_metadata",
- "globset",
- "proc-macro2",
- "quote",
- "regex",
- "serde",
- "serde_json",
- "sha2",
- "syn 2.0.118",
- "thiserror 1.0.69",
- "toml 0.8.23",
- "walkdir",
-]
-
-[[package]]
-name = "klepto"
-version = "0.3.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
 checksum = "2a26fd3450a52944152bf1d83161c6fa16a81622f8db41cefc12b1a669094fb9"
 dependencies = [
@@ -1482,10 +1466,12 @@ checksum = "7ef0d4ed8669f8f8826eb00dc878084aa8f253506c4fd5e8f58f5bce72ddb97e"
 [[package]]
 name = "maintenance"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "0d5831c2137780efbf2da450f05b4fc731593cc4c9dc2e4fbaa16a3648a10318"
 dependencies = [
  "globset",
  "inventory",
- "klepto 0.3.1 (registry+https://github.com/rust-lang/crates.io-index)",
+ "klepto",
  "liaise_proc_macro",
  "maintenance_core",
  "maintenance_macros",
@@ -1503,6 +1489,8 @@ dependencies = [
 [[package]]
 name = "maintenance_core"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "7b9bba0c409a1e766457b071da57a02d4ef772fb55fdb8635daf0fbd2a3874f5"
 dependencies = [
  "big-bad-bool",
  "liaise_proc_macro",
@@ -1517,6 +1505,8 @@ dependencies = [
 [[package]]
 name = "maintenance_macros"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ff258e69ac7ad60d0f08841ad50717db655d39fc37c5f11ac9519487554aebeb"
 dependencies = [
  "liaise_proc_macro",
  "maintenance_core",
@@ -2179,6 +2169,16 @@ dependencies = [
 ]
 
 [[package]]
+name = "scope"
+version = "0.3.1"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "5ebc6a35c10cc6b0f9434cc1ad44819e466995b6bd7389d868a6f266b8201d6d"
+dependencies = [
+ "loom",
+ "waker_tables",
+]
+
+[[package]]
 name = "scoped-tls"
 version = "1.0.1"
 source = "registry+https://github.com/rust-lang/crates.io-index"
@@ -2668,6 +2668,8 @@ dependencies = [
 [[package]]
 name = "task_history"
 version = "0.1.0"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "ab3e8a7573f19d05aedc1e784d91d64196969bb0bc3dbb1502c39bc106252405"
 dependencies = [
  "serde",
  "serde_json",

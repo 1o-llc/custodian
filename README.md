@@ -241,7 +241,7 @@ Hunt's.
 
 ## Building
 
-custodian depends by path on [custodian_kit](../custodian_kit) and
-[maintenance](../maintenance_macros/crates/maintenance), so those sit beside it. `cargo test` runs 37 tests:
+custodian depends by path on [custodian_kit](../custodian_kit), which sits beside it, and on the crates.io
+`maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses. `cargo test` runs 43 tests:
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
 `tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.

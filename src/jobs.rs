@@ -64,6 +64,17 @@ fn find(layout: &Layout, state: &str, which: &str) -> Result<Option<PathBuf>> {
     Ok(None)
 }
 
+/// The workspace a job's readings are answered over in this process (custodian_kit's in-process runner), when no
+/// resident answers for the project; with a resident answering, the job's readings run as the kit's declared reading
+/// lines (the line runner). Either way each reading keeps its receipt, its `runner` field saying which.
+fn runner_workspace(ctx: &mut Ctx) -> Result<Option<&custodian_kit::api::Workspace>> {
+    let resident = ctx.layout().ok().and_then(crate::serve::status).is_some() || ctx.in_resident;
+    if resident {
+        return Ok(None);
+    }
+    Ok(Some(ctx.workspace(&custodian_kit::api::Scope::default(), custodian_kit::api::Resolving::Job)?))
+}
+
 /// The ids of the jobs in `jobs/running`.
 pub fn running_ids(layout: &Layout) -> Result<Vec<String>> {
     Ok(folders(layout, "running")?.iter().map(|p| job_file(p).id.unwrap_or_else(|| p.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())).collect())
@@ -158,7 +169,13 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
         jf.id = None;
     }
     write_job_file(&folder, &jf)?;
-    let started = custodian_kit::jobs::start(&kit(ctx), Some(&folder_name), ask.again)?;
+    let started = {
+        let k = kit(ctx);
+        match runner_workspace(ctx)? {
+            Some(ws) => custodian_kit::jobs::start_with(&k, Some(&folder_name), ask.again, Some(ws))?,
+            None => custodian_kit::jobs::start_with(&k, Some(&folder_name), ask.again, None)?,
+        }
+    };
     ran.said.extend(started.said.iter().cloned());
     // the job's changes as events, for the observer set (watch)
     if let Some(j) = ctx.journal.as_ref() {
@@ -201,7 +218,13 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let mut ran = Ran::named(&id);
     ran.job = Some(id.clone());
     checkpoint(ctx, &id, &folder, "close", &mut ran)?;
-    let (closing, file, said) = custodian_kit::jobs::close(&kit(ctx), &id)?;
+    let (closing, file, said) = {
+        let k = kit(ctx);
+        match runner_workspace(ctx)? {
+            Some(ws) => custodian_kit::jobs::close_with(&k, &id, Some(ws))?,
+            None => custodian_kit::jobs::close_with(&k, &id, None)?,
+        }
+    };
     ran.said.extend(said);
     if let Some(j) = ctx.journal.as_ref() {
         j.event("job", Some(&id), &closing.name, "done", &ctx.rel(&file), None)?;

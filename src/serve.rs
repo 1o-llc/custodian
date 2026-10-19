@@ -201,6 +201,7 @@ fn bare(code: i32, line: &str, said: Vec<String>) -> Outcome {
             job: None,
             reused_seq: None,
             millis: 0,
+            runner: custodian_kit::receipts::RUNNER_IN_PROCESS.into(),
         },
         receipt_file: None,
         printed: Vec::new(),
@@ -256,6 +257,7 @@ pub fn answer(ctx: &mut Ctx, req: &Request) -> (Reply, bool) {
 
 /// `custodian serve`: binds the project's socket and answers until a stop request.
 pub fn serve(mut ctx: Ctx) -> i32 {
+    ctx.in_resident = true;
     let layout = match ctx.layout() {
         Ok(l) => l.clone(),
         Err(e) => {

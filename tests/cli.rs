@@ -127,6 +127,8 @@ fn a_folder_of_specs_is_a_job_from_start_to_close() {
     // every receipt of the job names the folder where it is now
     let ctx = custodian::facade::Ctx::at(&d).unwrap();
     let id = custodian_kit::jobs::job_file(&d.join(".custodian/state/jobs/done/batch")).id.unwrap();
+    let readings: Vec<_> = ctx.journal().unwrap().receipts_of_job(&id).unwrap().into_iter().filter(|r| r.command == "reading").collect();
+    assert!(!readings.is_empty() && readings.iter().all(|r| r.runner == "in_process"), "no resident answers: the kit answers the readings in this process");
     for r in ctx.journal().unwrap().receipts_of_job(&id).unwrap() {
         for o in r.outputs.iter().filter(|o| o.contains("/jobs/")) {
             assert!(o.contains("/jobs/done/batch/") && d.join(o).exists(), "#{} {o}", r.seq);
