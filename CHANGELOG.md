@@ -2,7 +2,7 @@
 
 ## 0.3.1 (2026-10-19)
 
-One rule, one place, on custodian_kit 0.3.1 and differences_kit 0.1.1. The
+One rule, one place, on custodian_kit 0.3.2 and differences_kit 0.1.1. The
 `.custodian` folder is declared once, in custodian_kit. A spec's readings
 come from one source, the receipts. A plan can be made in a named job, and
 it targets the crates its intent names. Nothing is removed from the API.
@@ -33,6 +33,9 @@ Every link is pinned to 1bc55b5; the earlier lines are pinned to 02b908a
   refused (`CUST1001`) and a plan used the running job only
   ([src/changes.rs#L139](https://github.com/1o-llc/custodian/blob/02b908ad1e58b721fbc4b0617b53d568b6384544/src/changes.rs#L139)). A job that is not in the journal is refused
   (`CUST1401`, [src/changes.rs#L33](https://github.com/1o-llc/custodian/blob/1bc55b50a117cc7e4ae24ee327625a635f802dee/src/changes.rs#L33)).
+- custodian_kit 0.3.2 is required. Its two new operations, `replace_body`
+  and `change_dependency`, are in the operations the MCP tools offer, and
+  the tool list's golden says so.
 - From custodian_kit 0.3.1: a plan targets the crates, files and
   declarations its intent names before it matches words. A `reading:<spec>`
   verification is satisfied by the job's first reading of a spec never read

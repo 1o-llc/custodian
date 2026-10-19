@@ -597,7 +597,9 @@
             "move",
             "extract",
             "gate",
-            "anchor"
+            "anchor",
+            "replace_body",
+            "change_dependency"
           ],
           "type": "string"
         },
