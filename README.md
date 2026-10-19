@@ -214,6 +214,13 @@ custodian is an early reference application for the `1o` development ecosystem: 
 composing independently published Rust libraries, each keeping its own responsibility. Which crate does what is on
 one page: [docs/COMPOSITION.md](docs/COMPOSITION.md).
 
+## Releasing
+
+Bump `version` in Cargo.toml and give CHANGELOG.md a dated `## <version> (YYYY-MM-DD)` entry, then push to main.
+CI (`.github/workflows/ci.yml`) tests on stable and Rust 1.88, runs clippy, and publishes to crates.io
+through trusted publishing; a version already on crates.io, or an entry still marked `(unreleased)`, publishes nothing.
+A custodian_kit version custodian needs is released first: the published crate takes the kit from crates.io.
+
 ## 1o, ownership and copyright
 
 The organization and ecosystem name is `1o`, lowercase. Its GitHub organization is

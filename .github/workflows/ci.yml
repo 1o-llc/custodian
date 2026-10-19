@@ -1,6 +1,7 @@
 # Tests every push and pull request on the newest Rust and on the oldest one
-# this crate supports (rust-version in Cargo.toml). On main, once the tests
-# pass, publishes to crates.io if Cargo.toml's version is not there yet.
+# this crate supports (rust-version in Cargo.toml), and runs clippy. On main, once
+# both pass, publishes to crates.io if Cargo.toml's version is not there yet and
+# CHANGELOG.md has its dated entry.
 # Publishing uses crates.io trusted publishing: no stored token.
 name: CI
 
@@ -43,8 +44,26 @@ jobs:
         # tests/cli.rs runs `git` and `cargo test` on the fixture project
         run: cargo test --all-features
 
+  clippy:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Clone the sibling crates this one builds against (../<name>)
+        run: |
+          branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          for s in $SIBLINGS; do
+            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
+            echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
+          done
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - name: Clippy
+        run: cargo clippy --all-targets --all-features -- -D warnings
+
   publish:
-    needs: test
+    needs: [test, clippy]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
     runs-on: ubuntu-latest
     concurrency: publish
