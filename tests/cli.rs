@@ -210,6 +210,46 @@ fn a_template_job_runs_through_the_kit_from_start_to_close() {
 }
 
 #[test]
+fn a_jobs_closing_receipt_lists_what_ran_while_it_was_open() {
+    let d = fixture("closing");
+    ok(&d, &["agent", "init"], 0);
+    // an agentic task: a job with no queued folder, its readings, a check and the tests run from the command line
+    ok(&d, &["job", "start", "agentic", "--intent", "read core_lib before changing it"], 0);
+    let read = ok(&d, &["run", "crate:core_lib", "--kind", "dependents"], 0);
+    let n = seq_of(&read);
+    assert_eq!(receipt(&d, n)["command"], "reading", "a run that answered a spec is a reading, in the kit's words");
+    let again = ok(&d, &["run", "crate:core_lib", "--kind", "dependents"], 0);
+    assert!(again.contains("reused"), "{again}");
+    let check = ok(&d, &["check", "all"], 0);
+    assert!(check.contains("--registry") && check.contains("the registry the readings carry: .maintenance/registry.json"), "{check}");
+    assert!(d.join(".maintenance/registry.json").is_file(), "the one registry file is written");
+    let tests = ok(&d, &["test", "--all"], 0);
+    assert!(tests.contains("core_lib all: 3 passed"), "{tests}");
+    let closed = ok(&d, &["job", "close"], 0);
+    let c: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(d.join(".custodian/state/jobs/done/agentic/closing.json")).unwrap()).unwrap();
+    let specs: Vec<&str> = c["specs"].as_array().unwrap().iter().filter_map(|x| x["name"].as_str()).collect();
+    assert_eq!(specs, ["dependents-crate_core_lib", "dependents-crate_core_lib"], "the reading and its reuse: {c}");
+    assert_eq!(c["reused"], 1, "{c}");
+    let tested: Vec<String> = c["tests"].as_array().unwrap().iter().map(|t| format!("{} {}", t["package"].as_str().unwrap(), t["outcome"].as_str().unwrap())).collect();
+    assert!(tested.iter().filter(|t| *t == "core_lib ok").count() == 3 && tested.iter().all(|t| t.ends_with(" ok")), "the tests run, in cargo's words: {tested:?}");
+    assert!(closed.contains("verifications, result"), "{closed}");
+    let page = std::fs::read_to_string(d.join(".custodian/state/jobs/done/agentic/closing.md")).unwrap();
+    assert!(page.contains("## tests run (3)") && page.contains("- dependents-crate_core_lib #"), "{page}");
+    // the task history's verifications: the check by its name, each test
+    let store = custodian_kit::store::Store::find(&d).unwrap();
+    let task = custodian_kit::task_records::read(&store, "agentic").unwrap().expect("the task history");
+    let checks: Vec<String> = task.revisions[0].documents.iter().filter(|x| x.kind().ok() == Some(task_history::DiffRecordKind::Verification)).filter_map(|x| x.one("check").ok().map(str::to_owned)).collect();
+    assert!(checks.iter().any(|c| c == "custodian check all"), "{checks:?}");
+    assert!(checks.iter().any(|c| c.starts_with("cargo test -p core_lib all ")), "{checks:?}");
+    // the brief, and the job packed as one file from the same line
+    let brief = ok(&d, &["job", "brief", "agentic", "--bundle"], 0);
+    assert!(brief.contains("tests: 3 run, 0 failed"), "{brief}");
+    let file = brief.lines().find_map(|l| l.strip_prefix("bundle: ")).unwrap().split(" (").next().unwrap().to_string();
+    assert!(file.ends_with(".bundle") && d.join(&file).is_file(), "{file}");
+    assert!(brief.contains("filters: filters=redact_secret"), "{brief}");
+}
+
+#[test]
 fn triage_runs_its_template_and_closes_into_one_receipt() {
     let d = fixture("triage");
     ok(&d, &["agent", "init"], 0);
@@ -261,6 +301,7 @@ fn check_annotate_and_features_route_to_their_programs() {
     assert!(d.join(".custodian/data/plans/annotate.toml").is_file());
     let feat = ok(&d, &["features"], 0);
     assert!(feat.contains("code_passenger spec: .custodian/data/plans/klepto.toml"), "{feat}");
+    assert!(feat.contains("gate headers (unavailable with each off): .custodian/data/plans/features-unavailable.toml"), "{feat}");
 }
 
 #[test]
@@ -288,6 +329,8 @@ fn a_bundle_is_a_word_checked_and_reused() {
     assert!(two.contains("reused:"), "{two}");
     let other = ok(&d, &["bundle", "crate:core_lib"], 0);
     assert!(other.contains("no: read"), "another word is another search: {other}");
+    let all = ok(&d, &["bundle", "crate:core_lib", "--no-tests", "--no-benches", "--no-examples"], 0);
+    assert!(all.contains("filters: filters=no_tests|no_benches|no_examples|redact_secret") && all.contains("no: read"), "{all}");
     let r = run(&d, &["bundle", "crate:core_lib", "--reveal", "--redact-level", "secret"]);
     assert_eq!(r.code, 2);
     assert!(r.out.contains("reveal conflicts with") || r.out.contains("conflicts"), "{}", r.all());
@@ -470,9 +513,9 @@ fn init_macros_annotate_apply_and_features_apply_write_through_code_passenger() 
     std::fs::remove_file(d.join("Cargo.lock")).ok();
 
     let init = ok(&d, &["init", "--macros"], 0);
-    assert!(init.contains("dep add app maintenance --path") && init.contains("dep add core_lib maintenance --path"), "{init}");
+    assert!(init.contains("dep add app maintenance@0.1.0") && init.contains("dep add core_lib maintenance@0.1.0"), "{init}");
     for c in ["app", "core_lib", "helper"] {
-        assert!(std::fs::read_to_string(d.join(format!("crates/{c}/Cargo.toml"))).unwrap().contains("maintenance = { path = "), "{c}");
+        assert!(std::fs::read_to_string(d.join(format!("crates/{c}/Cargo.toml"))).unwrap().contains("maintenance = \"0.1.0\""), "{c}: from crates.io, no local path");
     }
 
     let line = std::fs::read_to_string(&lib).unwrap().lines().position(|l| l.contains("fn config_names")).unwrap() + 1;
@@ -489,6 +532,7 @@ fn init_macros_annotate_apply_and_features_apply_write_through_code_passenger() 
 
     let feat = ok(&d, &["features", "--apply"], 0);
     assert!(feat.contains("**helper** in core_lib: feature-eligible") && feat.contains("gate --spec") && feat.contains("--write --package core_lib"), "{feat}");
+    assert!(feat.contains("off in core_lib (depth: "), "the eligibility decision shows how deep it sits: {feat}");
     let toml = std::fs::read_to_string(&toml).unwrap();
     assert!(toml.contains("optional = true") && toml.contains("[features]"), "{toml}");
 }

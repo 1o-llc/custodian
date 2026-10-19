@@ -152,7 +152,8 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
         total_fail += failed;
         let t = TestRun { seq: run.receipt.seq, job: job.clone(), package: line.package.clone(), target: line.target.clone(), line: run.receipt.line.clone(), exit_code: run.code, millis: run.millis, passed, failed, ignored };
         if let Some(j) = ctx.journal.as_ref() {
-            j.test_run(&t, &results.iter().map(|(n, o)| (n.clone(), if o == "ok" { "passed".into() } else if o == "FAILED" { "failed".into() } else { "ignored".into() })).collect::<Vec<_>>())?;
+            // each outcome in cargo's words (`ok`, `FAILED`, `ignored`), as custodian_kit's tests table keeps them
+            j.test_run(&t, &results)?;
             j.event("test", job.as_deref(), &format!("{} {}", line.package, line.target), "counts", &format!("{passed},{failed},{ignored}"), Some(run.receipt.seq))?;
             for (n, _) in results.iter().filter(|(_, o)| o == "FAILED") {
                 j.event("test", job.as_deref(), n, "FAILED", &line.package, Some(run.receipt.seq))?;

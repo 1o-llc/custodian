@@ -80,7 +80,7 @@
   },
   {
     "name": "job_start",
-    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]`.",
+    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -115,7 +115,7 @@
   },
   {
     "name": "job_close",
-    "description": "Runs `custodian job close`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]`.",
+    "description": "Runs `custodian job close`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
@@ -129,10 +129,14 @@
   },
   {
     "name": "job_brief",
-    "description": "Runs `custodian job brief`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]`.",
+    "description": "Runs `custodian job brief`, a declared line; every run leaves a receipt. `bundle` packs the closed job as one bundle file too.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "bundle": {
+          "description": "With brief: the closed job packed as one bundle too (its receipts, readings and the windows around its sites, secret items held redacted), as `custodian bundle <job>` makes it. (`--bundle`)",
+          "type": "boolean"
+        },
         "name": {
           "description": "The job's name (start), its id (close, brief; the running or last one by default), or a bundle file (import). (a word on the line)",
           "type": "string"
@@ -143,7 +147,7 @@
   },
   {
     "name": "job_list",
-    "description": "Runs `custodian job list`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]`.",
+    "description": "Runs `custodian job list`, a declared line; every run leaves a receipt.\n\n`custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {},
@@ -306,12 +310,20 @@
   },
   {
     "name": "bundle",
-    "description": "Runs `custodian bundle`, a declared line; every run leaves a receipt.\n\n`custodian bundle ROUTE|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal]`.",
+    "description": "Runs `custodian bundle`, a declared line; every run leaves a receipt.\n\n`custodian bundle ROUTE|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src] [--redact-level secret] [--reveal]`.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "again": {
           "description": "Bundle again even when the same bundle exists over the same code. (`--again`)",
+          "type": "boolean"
+        },
+        "no_benches": {
+          "description": "Leave `benches/` out. (`--no-benches`)",
+          "type": "boolean"
+        },
+        "no_examples": {
+          "description": "Leave `examples/` out. (`--no-examples`)",
           "type": "boolean"
         },
         "no_feature": {

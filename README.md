@@ -94,20 +94,20 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 
 | subcommand | what it does |
 |---|---|
-| `init [--macros]` | makes `.custodian/` (plain); `--macros` adds `maintenance` to every crate through `code-passenger dep add` |
+| `init [--macros]` | makes `.custodian/` (plain); `--macros` adds `maintenance` 0.1.0 from crates.io to every crate through `code-passenger dep add` |
 | `agent init [--macros]` | the same, with `state/jobs/{queued,running,done}` and the job templates in `config/jobs/` |
 | `run [SPEC\|ROUTE] [--kind K] [--job ID] [--again]` | one spec (a file, or a queued or done spec's name), a search on the line, or the queue |
 | `list` | the inventory: specs, the latest reading of each, jobs, test lines, installs, the folder's parts |
 | `diff SPEC [--from N] [--to N]` | what moved between two readings of one spec |
-| `job start\|close\|brief\|import\|list [NAME\|ID\|BUNDLE] [--intent TEXT]` | jobs as folders, run by custodian_kit; the closing receipt and the task history; the brief (lines touched, revision); a bundled job imported under a new id |
+| `job start\|close\|brief\|import\|list [NAME\|ID\|BUNDLE] [--intent TEXT] [--bundle]` | jobs as folders, run by custodian_kit; the closing receipt (every reading, reuse, test and check run while the job was open) and the task history; the brief (lines touched, revision), with `--bundle` the job packed as one file too; a bundled job imported under a new id |
 | `count [ROUTE] [--by crate\|language] [--tests]`, `count report A B`, `count history [ROUTE]` | a count as a reading; two counts compared (by receipt number, job, `job:open`/`job:close`, commit or date); every count of a route |
 | `test [report] [--affected\|--all] [--observe failed\|progress\|all] [--ref REF]` | the affected tests (or all), a receipt per cargo line; `report`: slowest lines, flakiest tests, maintenance's timed report |
-| `check sensitivity\|mechanism\|boundary\|supersedes\|reads_env\|golden\|all` | maintenance's check line, its JSON kept |
+| `check sensitivity\|mechanism\|boundary\|supersedes\|reads_env\|golden\|all` | maintenance's check line with `--registry`, its JSON kept; the line writes `.maintenance/registry.json`, the one registry the readings carry |
 | `annotate [--from CHECK_JSON] [--apply]` | the plan of maintenance attributes the receipts call for; `--apply` places each through `code-passenger attr place` |
-| `features [--apply]` | primary and feature-eligible dependencies; code_passenger's `klepto.toml` spec; `--apply` runs `code-passenger gate --write` |
+| `features [--apply]` | primary and feature-eligible dependencies, each with its scope depth and the unavailable list; code_passenger's `klepto.toml` spec and the gate-header lines (`features-unavailable.toml`); `--apply` runs `code-passenger gate --write` |
 | `diagnostics list [CRATE] \| where CODE \| from LOGFILE` | every liaise code table: meanings, declarations, the sites raising them |
 | `triage CODE\|@LOGFILE` | the triage job: the code's sites, what they reach, the tests that prove a fix, the marks there |
-| `bundle ROUTE\|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal]` | a crate, a declared set or a job as one annotated file |
+| `bundle ROUTE\|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src] [--redact-level secret] [--reveal]` | a crate, a declared set or a job as one annotated file |
 | `sweep DIR` | the one walk: an undeclared tree listed, routes offered to declare |
 | `serve` / `stop` | the resident on the project's socket |
 | `watch [--observe L] [--since N] [--follow]` | job state changes and test progress, through the observer set |
@@ -136,7 +136,9 @@ The parts are custodian_kit's (`store::named`); the few only the command line ke
 ## The receipt and the journal
 
 A receipt is custodian_kit's `Receipt` (`custodian.receipt.v1`): `seq` (the journal's number, from
-uh-tom-mick's checked counter inside the writing transaction), `utc`, `command`, `name`, `spec`, `spec_hash` (the
+uh-tom-mick's checked counter inside the writing transaction), `utc`, `command` (in the kit's words: `reading`
+for a run that answered a spec, read or reused; `test` for a cargo test line; `git`, `gate`; else the subcommand
+or the program line's id: `src/facade.rs` `command_word`), `name`, `spec`, `spec_hash` (the
 stable_digest of the spec and its option word), `index_key` (the code's index key), `code_digest`, `plan_id`,
 `plan_digest`, `operation_digest`, `receipt_digest` (xccute's runtime receipt), `line` (the declared line as it
 ran), `exit_code`, `accepted`, `disposition`, `reason` (the status's word), `outputs`, `job`, `reused_seq`,
@@ -242,6 +244,7 @@ Hunt's.
 ## Building
 
 custodian depends by path on [custodian_kit](../custodian_kit), which sits beside it, and on the crates.io
-`maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses. `cargo test` runs 43 tests:
+`maintenance` 0.1.0 and `task_history` 0.1.0 the kit uses (custodian_kit 0.1.1: a job's close reads cargo's test
+outcomes, the words custodian writes). `cargo test` runs 44 tests:
 the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `tests/fixtures/ws`) and
 `tests/runtime.rs` (checkpoint resume, the job queue). Rust 1.88 or later.

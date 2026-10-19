@@ -1,4 +1,5 @@
-//! `custodian bundle ROUTE|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal]`: a
+//! `custodian bundle ROUTE|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src]
+//! [--redact-level secret] [--reveal]`: a
 //! route (`crate:<name>`, `decl:<name>`, a declared `path:`) or a job's folder as one annotated bundles file.
 //!
 //! The filters are custodian_kit's word (`FiltersWord`, a big-bad-bool word whose rules flaga_solver checks before
@@ -21,6 +22,12 @@ pub fn word_of(l: &Bundle) -> Result<FiltersWord> {
     let mut names: Vec<&str> = Vec::new();
     if l.no_tests {
         names.push("no_tests");
+    }
+    if l.no_benches {
+        names.push("no_benches");
+    }
+    if l.no_examples {
+        names.push("no_examples");
     }
     if l.only.is_some() {
         names.push("only_src");
@@ -99,6 +106,14 @@ pub fn bundle(ctx: &mut Ctx, l: &Bundle) -> Result<Ran> {
         });
     }
     Ok(ran)
+}
+
+/// A closed job's bundle with what a bare `custodian bundle <job>` takes: secret items held redacted.
+pub fn bundle_job_by_default(ctx: &mut Ctx, row: &crate::journal::JobRow) -> Result<Ran> {
+    let l = Bundle { target: row.id.clone().into(), ..Bundle::default() };
+    let word = word_of(&l)?;
+    let text = word_text(word, &l);
+    bundle_job(ctx, row, word, &text)
 }
 
 fn bundle_job(ctx: &mut Ctx, row: &crate::journal::JobRow, word: FiltersWord, text: &str) -> Result<Ran> {

@@ -13,8 +13,9 @@ permissions:
 
 env:
   CARGO_TERM_COLOR: always
-  # crates this one depends on by path; CI clones them next to it
-  SIBLINGS: custodian_kit klepto maintenance_macros
+  # crates this one depends on by path; CI clones them next to it (every other crate is from crates.io)
+  SIBLINGS: custodian_kit
+  ORG: 1o-llc
 
 jobs:
   test:
@@ -31,8 +32,8 @@ jobs:
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           for s in $SIBLINGS; do
-            git clone --depth 1 --branch "$branch" "https://github.com/jameshuntt/$s.git" "../$s" 2>/dev/null \
-              || git clone --depth 1 "https://github.com/jameshuntt/$s.git" "../$s"
+            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
             echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
           done
       - uses: dtolnay/rust-toolchain@master
@@ -56,8 +57,8 @@ jobs:
         run: |
           branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
           for s in $SIBLINGS; do
-            git clone --depth 1 --branch "$branch" "https://github.com/jameshuntt/$s.git" "../$s" 2>/dev/null \
-              || git clone --depth 1 "https://github.com/jameshuntt/$s.git" "../$s"
+            git clone --depth 1 --branch "$branch" "https://github.com/$ORG/$s.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$ORG/$s.git" "../$s"
             echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
           done
       - uses: dtolnay/rust-toolchain@stable

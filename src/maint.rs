@@ -9,18 +9,22 @@ use crate::layout::{self, write_whole};
 use custodian_kit::api::{Resolving, Scope};
 use maintenance::runner::{CheckName, CheckRun, Maintenance};
 
-/// `custodian check KIND|all`: maintenance's line `maintenance check <kind> --workspace <root>`, run as maintenance
-/// runs it (its runner, in this process), its JSON kept beside the receipts.
+/// `custodian check KIND|all`: maintenance's line `maintenance check <kind> --workspace <root> --registry <file>`,
+/// run as maintenance runs it (its runner, in this process), its JSON kept beside the receipts. The line writes the
+/// one registry file (`.maintenance/registry.json`) every mark records into, which custodian_kit's readings read
+/// back, so a reading carries each item's level, owner and rules.
 pub fn check(ctx: &mut Ctx, which: &str, job: Option<String>) -> Result<Ran> {
     let name = CheckName::of_word(which).ok_or_else(|| Code::LineRefused.refuse(format!("{which} is not a check")))?;
     let job = ctx.current_job(job)?;
     let root = ctx.root().to_path_buf();
-    let line = Maintenance::check_of(name, &root);
+    let registry = maintenance::registry::path(&root);
+    let line = Maintenance::check_of(name, &root).registry(registry.as_os_str());
     let ext = External::of("maintenance.check", &line)?;
     let started = std::time::Instant::now();
     let out = maintenance::runner::execute(&line);
     let millis = started.elapsed().as_millis() as i64;
-    let mut ran = Ran::named(format!("check {which}"));
+    // the check's name, as custodian_kit names a check's receipt (its job close writes `custodian check <name>`)
+    let mut ran = Ran::named(which);
     ran.job = job.clone();
     let mut outputs = Vec::new();
     if let Some(p) = ctx.mode.project() {
@@ -28,7 +32,7 @@ pub fn check(ctx: &mut Ctx, which: &str, job: Option<String>) -> Result<Ran> {
         write_whole(&f, out.stdout.as_bytes())?;
         outputs.push(p.layout.rel(&f));
     }
-    let run = facade::finish_external(ctx, &ext, ExternalNames { name: format!("check {which}"), job, outputs: outputs.clone() }, Some(out.code), out.stdout.clone(), String::new(), millis)?;
+    let run = facade::finish_external(ctx, &ext, ExternalNames { name: which.to_string(), job, outputs: outputs.clone() }, Some(out.code), out.stdout.clone(), String::new(), millis)?;
     ran.say(format!("{} → {} ({}){}", run.receipt.line, out.code, out.word, run.receipt_file.as_ref().map(|f| format!(" · receipt #{} {}", run.receipt.seq, ctx.rel(f))).unwrap_or_default()));
     match serde_json::from_str::<CheckRun>(&out.stdout) {
         Ok(cr) => {
@@ -43,6 +47,9 @@ pub fn check(ctx: &mut Ctx, which: &str, job: Option<String>) -> Result<Ran> {
             ran.print(page);
             let findings: usize = cr.reports.iter().map(|r| r.findings.len()).sum();
             ran.say(format!("{} check(s): {} clean, {findings} findings", cr.reports.len(), cr.reports.iter().filter(|r| r.passed).count()));
+            if let Some(reg) = &cr.registry {
+                ran.say(format!("the registry the readings carry: {}", ctx.rel(std::path::Path::new(reg))));
+            }
         }
         Err(_) => ran.print(out.stdout.clone()),
     }
@@ -132,8 +139,10 @@ fn latest_check(ctx: &Ctx) -> Result<Option<std::path::PathBuf>> {
 }
 
 /// `custodian features [--apply]`: each crate's dependencies judged primary or feature-eligible by the rule in
-/// `config/features.toml` (custodian_kit's eligibility reading), code_passenger's `klepto.toml` spec written for the
-/// eligible, and with `--apply` code_passenger's gate run on it as its own declared line, with `--write`.
+/// `config/features.toml` (custodian_kit's eligibility reading), each with its scope depth and the unavailable list
+/// (with it off: what goes, what is wholly gated, who elsewhere loses what), code_passenger's `klepto.toml` spec
+/// written for the eligible with the gate-header lines beside it (`features-unavailable.toml`), and with `--apply`
+/// code_passenger's gate run on it as its own declared line, with `--write`.
 pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
     let mut ran = Ran::named("features");
     let rule_text = match ctx.mode.project() {
@@ -149,6 +158,10 @@ pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
     page.push_str(&format!("- judged: {}\n- feature-eligible: {eligible}\n\n", judged.len()));
     for j in &judged {
         page.push_str(&format!("- **{}** in {}: {} — {}\n", j.dependency, j.package, if j.eligible { "feature-eligible" } else { "primary or not judged" }, j.why));
+        // how deep it sits and what goes with it off: the lines its gate's header carries
+        for line in j.unavailable.header() {
+            page.push_str(&format!("  - {line}\n"));
+        }
     }
     let spec_text = toml::to_string(&spec).map_err(|e| Code::Write.refuse(e))?;
     page.push_str(&format!("\n## code_passenger's spec (klepto.toml)\n\n```toml\n{spec_text}```\n"));
@@ -160,6 +173,15 @@ pub fn features(ctx: &mut Ctx, apply: bool) -> Result<Ran> {
             write_whole(&f, spec_text.as_bytes())?;
             ran.say(format!("code_passenger spec: {}", p.layout.rel(&f)));
             ran.outputs.push(p.layout.rel(&f));
+            // each eligible dependency's gate-header lines, by crate then dependency, as custodian_kit writes them
+            let mut headers: std::collections::BTreeMap<String, std::collections::BTreeMap<String, Vec<String>>> = Default::default();
+            for j in judged.iter().filter(|j| j.eligible) {
+                headers.entry(j.package.clone()).or_default().insert(j.dependency.clone(), j.unavailable.header());
+            }
+            let h = p.layout.path::<layout::PlanFile>(&[("name", "features-unavailable")])?;
+            write_whole(&h, toml::to_string(&headers).map_err(|e| Code::Write.refuse(e))?.as_bytes())?;
+            ran.say(format!("gate headers (unavailable with each off): {}", p.layout.rel(&h)));
+            ran.outputs.push(p.layout.rel(&h));
             Some(f)
         }
         None => None,

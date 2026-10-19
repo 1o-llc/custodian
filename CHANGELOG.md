@@ -18,6 +18,29 @@ an agent should read a repository before it works on it, ask what it must ask be
 - bound to custodian_kit 9a176fc and to the crates.io `maintenance` 0.1.0 and `task_history` 0.1.0 it uses. A job's readings are answered by the kit's in-process runner over the workspace custodian holds open (`jobs::start_with`, `close_with`) when no resident answers for the project, and by its line runner (`custodian exec-reading`) inside the resident; every receipt says which (`runner`: `in_process` or `line`), custodian's own lines `in_process`, a program's `line`. A passenger checkpoint code_passenger cannot take is said and does not stop the job.
 - custodian_kit fed6c5d fixed what a1ecffd got wrong: a job's specs are its spec files only (`jobs::job_specs`), and a job's move (`jobs::move_job`) rewrites every receipt's paths, so a folder-of-specs job runs from start to close and a reading's receipt names where its file is now (tests/cli.rs `a_folder_of_specs_is_a_job_from_start_to_close`, and every receipt of the job checked). custodian moves no job folder itself; its `job start` receipt names the job file inside the folder, so the kit's move rewrites it with the rest.
 
+- the completeness pass against the contract (DIRECTIONS part 6), each with its test in tests/cli.rs:
+  - a job's closing receipt lists what ran while the job was open, from the command line too: a receipt's
+    `command` is custodian_kit's word (`reading` for a run that answered a spec, read or reused; `test` for a cargo
+    test line; `git`, `gate`), declared once in src/facade.rs (`KIT_COMMANDS`, `command_word`). Before, a
+    `custodian run` inside an open job was kept as `run` and a cargo line as `cargo.test`, so the kit's close
+    listed neither the reading nor the tests. A test's outcomes are kept in cargo's words (`ok`, `FAILED`,
+    `ignored`), as the kit's own test runner keeps them (custodian_kit 0.1.1 reads `FAILED` as a failure). A check's
+    receipt is named by the check, so its verification record reads `custodian check all`.
+    `a_jobs_closing_receipt_lists_what_ran_while_it_was_open`.
+  - `check` passes `--registry`, so the line writes `.maintenance/registry.json`, the one registry file the kit's
+    readings read each item's level, owner and rules from, and says where it is.
+  - `job brief [ID] --bundle`: the brief, and the closed job packed as `custodian bundle <job>` packs it (secret
+    items held redacted), from one line; `--bundle` is refused on any other job action.
+  - `bundle --no-benches` and `--no-examples`: the two filters custodian_kit's word has that the line did not take.
+  - `init --macros` adds `maintenance@0.1.0` from crates.io; it named a path on one machine.
+  - `features` shows each dependency's scope depth and unavailable list (the lines its gate header carries) and
+    writes them beside the spec (`data/plans/features-unavailable.toml`), as custodian_kit's `features` does.
+  - the pre-edit hook's filter prints a reach reading's entries section too. Its own reading is a search on the
+    line, which carries no declaration sources (`[[declared_in]]`), so it finds no entries yet: where a project
+    declares the key that names a binary is still open.
+  - CI clones custodian_kit from github.com/1o-llc (the only crate custodian takes by path); the repository field
+    names github.com/1o-llc/custodian.
+
 ### the surface
 
 - every subcommand is a line declared once with simple_impl_derive 0.2.6 over xccute_contract 0.1.2: the `custodian` program a `CompositeShell`, one `SimpleSubCommand` leaf each, each naming its exit statuses (0 done, 1 findings, 2 refused): src/surface.rs. there is no hand parser and no clap: `surface::read` takes the words through the leaf's own fields and refuses a word no field takes; the line is then what runs, what is previewed and what the receipt keeps.

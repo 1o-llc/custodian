@@ -445,11 +445,12 @@ impl Journal {
         self.rows("SELECT * FROM test_runs WHERE job = ?1 ORDER BY seq", [job], test_run_of)
     }
 
-    /// Per test: (package, test, runs, failures), the most failing first.
+    /// Per test: (package, test, runs, failures), the most failing first. A failure is cargo's `FAILED` (or `failed`,
+    /// the word an earlier custodian wrote).
     pub fn test_outcomes(&self) -> Result<Vec<(String, String, i64, i64)>> {
         let mut st = self
             .conn
-            .prepare("SELECT package, test, COUNT(*), SUM(CASE WHEN outcome = 'failed' THEN 1 ELSE 0 END) FROM tests GROUP BY package, test ORDER BY 4 DESC, 3 DESC, 1, 2")
+            .prepare("SELECT package, test, COUNT(*), SUM(CASE WHEN outcome IN ('FAILED', 'failed') THEN 1 ELSE 0 END) FROM tests GROUP BY package, test ORDER BY 4 DESC, 3 DESC, 1, 2")
             .map_err(jerr)?;
         let rows = st.query_map([], |r| Ok((r.get(0)?, r.get(1)?, r.get(2)?, r.get(3)?))).map_err(jerr)?;
         rows.collect::<rusqlite::Result<Vec<_>>>().map_err(jerr)
@@ -497,7 +498,7 @@ impl Journal {
     pub fn step_reading(&self, job: &str, name: &str) -> Result<Option<ReadingRow>> {
         let last: Option<(i64, Option<i64>)> = self
             .conn
-            .query_row("SELECT seq, reused_seq FROM runs WHERE job = ?1 AND name = ?2 AND command = 'run' ORDER BY seq DESC LIMIT 1", params![job, name], |r| Ok((r.get(0)?, r.get(1)?)))
+            .query_row("SELECT seq, reused_seq FROM runs WHERE job = ?1 AND name = ?2 AND command = 'reading' ORDER BY seq DESC LIMIT 1", params![job, name], |r| Ok((r.get(0)?, r.get(1)?)))
             .optional()
             .map_err(jerr)?;
         match last {

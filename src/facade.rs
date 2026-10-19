@@ -213,6 +213,24 @@ impl Ctx {
     }
 }
 
+/// What ran, in custodian_kit's words for a receipt's `command` (`reading`, `test`, `check`, `git`, `gate`,
+/// `job-close`): the journal's one vocabulary, which the kit's job close reads to list a job's readings, its tests
+/// and its checks. A program's line whose kind the kit names is written with the kit's word.
+pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("code-passenger.gate", "gate")];
+
+/// The kit's word for a line that answered a spec, read or reused (`custodian run`, `count`, `diagnostics`,
+/// `bundle`, `sweep`).
+pub const READING: &str = "reading";
+
+/// A receipt's `command`: `reading` for a run that answered a spec; the kit's word for a program's line, else the
+/// line's id; the subcommand for every other custodian line.
+pub fn command_word<'a>(id: &'a str, ran: &Ran) -> &'a str {
+    if ran.spec_digest.is_some() {
+        return READING;
+    }
+    KIT_COMMANDS.iter().find(|(line, _)| *line == id).map_or(id, |(_, word)| word)
+}
+
 /// The plan a run belongs to: its job's, or custodian's own.
 pub fn plan_id(job: Option<&str>) -> String {
     match job {
@@ -239,6 +257,7 @@ pub fn execute(ctx: &mut Ctx, line: &Line, handler: impl FnOnce(&mut Ctx, &Line)
     let decision = line.decide(code);
     let rr = RuntimeOperationReceipt::new(&plan, &operation, decision);
     let mut receipt = receipt_of(&plan, &rr, &preview, &ran, started.elapsed().as_millis() as i64);
+    receipt.command = command_word(line.segment(), &ran).to_string();
     if let Some(r) = &refusal {
         receipt.reason = format!("{} {r}", receipt.reason);
     }
@@ -411,7 +430,7 @@ pub fn finish_external(ctx: &mut Ctx, ext: &External, names: ExternalNames, code
     let rr = RuntimeOperationReceipt::new(&plan, &operation, decision);
     let ran = Ran { name: names.name, outputs: names.outputs, job: names.job, ..Ran::default() };
     let mut receipt = receipt_of(&plan, &rr, &ext.preview, &ran, millis);
-    receipt.command = ext.logical_id.clone();
+    receipt.command = command_word(&ext.logical_id, &ran).to_string();
     receipt.runner = custodian_kit::receipts::RUNNER_LINE.into();
     let receipt_file = ctx.keep(&mut receipt)?;
     Ok(ExternalRun { code, accepted, stdout, stderr, millis, receipt, receipt_file })

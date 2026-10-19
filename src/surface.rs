@@ -266,7 +266,7 @@ leaf! {
 }
 
 leaf! {
-    /// `custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again]`.
+    /// `custodian job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--again] [--bundle]`.
     #[allow(clippy::duplicated_attributes)]
     #[derive(SimpleSubCommand, Debug, Clone, Default)]
     #[subcommand(segment = "job")]
@@ -297,6 +297,10 @@ leaf! {
         /// Read every step again.
         #[arg(flag = "--again")]
         pub again: bool,
+        /// With brief: the closed job packed as one bundle too (its receipts, readings and the windows around its
+        /// sites, secret items held redacted), as `custodian bundle <job>` makes it.
+        #[arg(flag = "--bundle")]
+        pub bundle: bool,
     }
 }
 
@@ -426,7 +430,8 @@ leaf! {
 }
 
 leaf! {
-    /// `custodian bundle ROUTE|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal]`.
+    /// `custodian bundle ROUTE|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src]
+    /// [--redact-level secret] [--reveal]`.
     #[allow(clippy::duplicated_attributes)]
     #[derive(SimpleSubCommand, Debug, Clone, Default)]
     #[subcommand(segment = "bundle")]
@@ -441,6 +446,12 @@ leaf! {
         /// Leave the tests out.
         #[arg(flag = "--no-tests")]
         pub no_tests: bool,
+        /// Leave `benches/` out.
+        #[arg(flag = "--no-benches")]
+        pub no_benches: bool,
+        /// Leave `examples/` out.
+        #[arg(flag = "--no-examples")]
+        pub no_examples: bool,
         /// Leave out the code behind this feature.
         #[builder(into)]
         #[arg(kv = "--no-feature", each = plain)]
@@ -700,6 +711,9 @@ fn job_valid(line: &Job) -> CommandValidationResult {
     if line.action == "import" && line.name.is_none() {
         return refuse("name", "job import names the bundle: job import FILE.bundle".into());
     }
+    if line.bundle && line.action != "brief" {
+        return refuse("bundle", "--bundle is brief's: job brief [ID] --bundle".into());
+    }
     Ok(())
 }
 
@@ -843,14 +857,14 @@ lines! {
     Run(Run) = "run", "run [SPEC|ROUTE] [--kind KIND] [--job ID] [--again]" => read_run;
     List(List) = "list", "list" => read_list;
     Diff(Diff) = "diff", "diff SPEC [--from SEQ] [--to SEQ]" => read_diff;
-    Job(Job) = "job", "job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--intent TEXT] [--again]" => read_job;
+    Job(Job) = "job", "job start|close|brief|import|list [NAME|ID|BUNDLE] [--kind KIND] [--target T] [--intent TEXT] [--again] [--bundle]" => read_job;
     Test(Test) = "test", "test [report] [--affected|--all] [--observe failed|progress|all] [--ref REF]" => read_test;
     Check(Check) = "check", "check sensitivity|mechanism|boundary|supersedes|reads_env|golden|all" => read_check;
     Annotate(Annotate) = "annotate", "annotate [--from CHECK_JSON] [--apply]" => read_annotate;
     Features(Features) = "features", "features [--apply]" => read_features;
     Diagnostics(Diagnostics) = "diagnostics", "diagnostics list [CRATE] | where CODE | from LOGFILE|-" => read_diagnostics;
     Triage(Triage) = "triage", "triage CODE|@LOGFILE" => read_triage;
-    Bundle(Bundle) = "bundle", "bundle ROUTE|JOB [--no-tests] [--no-feature F] [--only src] [--redact-level secret] [--reveal] [--again]" => read_bundle;
+    Bundle(Bundle) = "bundle", "bundle ROUTE|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src] [--redact-level secret] [--reveal] [--again]" => read_bundle;
     Sweep(Sweep) = "sweep", "sweep DIR" => read_sweep;
     Count(Count) = "count", "count [ROUTE] [--by crate|language] [--tests] [--again] [--job ID] | count report A B | count history [ROUTE]" => read_count;
     Serve(Serve) = "serve", "serve" => read_serve;
@@ -907,7 +921,7 @@ fn read_diff(w: &mut Words) -> Result<Diff> {
 }
 
 fn read_job(w: &mut Words) -> Result<Job> {
-    Ok(Job { kind: kv(w, "--kind")?, target: kv(w, "--target")?, intent: kv(w, "--intent")?, again: w.flag("--again"), action: need(w, "action (start, close, brief, import, list)", "job")?, name: pos(w) })
+    Ok(Job { kind: kv(w, "--kind")?, target: kv(w, "--target")?, intent: kv(w, "--intent")?, again: w.flag("--again"), bundle: w.flag("--bundle"), action: need(w, "action (start, close, brief, import, list)", "job")?, name: pos(w) })
 }
 
 fn read_test(w: &mut Words) -> Result<Test> {
@@ -937,6 +951,8 @@ fn read_triage(w: &mut Words) -> Result<Triage> {
 fn read_bundle(w: &mut Words) -> Result<Bundle> {
     Ok(Bundle {
         no_tests: w.flag("--no-tests"),
+        no_benches: w.flag("--no-benches"),
+        no_examples: w.flag("--no-examples"),
         no_feature: kv(w, "--no-feature")?,
         reveal: w.flag("--reveal"),
         again: w.flag("--again"),
@@ -1016,6 +1032,7 @@ mod tests {
             Custodian::list().argv(),
             Custodian::diff("env").from("3").to("9").argv(),
             Custodian::job("start").name("batch").kind("triage").target("CUST0004").intent("find the raise").again().argv(),
+            Custodian::job("brief").name("batch").bundle().argv(),
             Custodian::test().action("report").argv(),
             Custodian::test().affected().observe("progress").git_ref("HEAD~1").job("j-2").argv(),
             Custodian::check("all").job("j-3").argv(),
@@ -1023,7 +1040,7 @@ mod tests {
             Custodian::features().apply().argv(),
             Custodian::diagnostics("where").arg("CUST0004").argv(),
             Custodian::triage("@box.log").argv(),
-            Custodian::bundle("crate:core_lib").no_tests().no_feature("serde").only("src").redact_level("secret").again().argv(),
+            Custodian::bundle("crate:core_lib").no_tests().no_benches().no_examples().no_feature("serde").only("src").redact_level("secret").again().argv(),
             Custodian::sweep("vendor").argv(),
             Custodian::count().args(["crate:core_lib"]).by("language").tests().again().job("j-4").argv(),
             Custodian::count().args(["report", "3", "9"]).argv(),
@@ -1073,6 +1090,7 @@ mod tests {
         assert!(read(&words("test --affected --all")).is_err());
         assert!(read(&words("run --kind nonsense x")).is_err());
         assert!(read(&words("diagnostics where")).unwrap_err().to_string().contains("names its code"));
+        assert!(read(&words("job close --bundle")).unwrap_err().to_string().contains("--bundle is brief's"));
         assert!(read(&words("self install --bin-dir b")).is_err(), "--bin-dir needs --state-dir");
         assert!(read(&words("deploy")).unwrap_err().to_string().contains("the subcommands are init, agent, run"));
     }

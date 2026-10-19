@@ -56,7 +56,8 @@ const fn tool(name: &'static str, segment: &'static str, fixed: &'static [(&'sta
     ToolLine { name, segment, fixed, hidden, says }
 }
 
-const JOB_ONLY_NAME: &[&str] = &["kind", "target", "intent", "again"];
+const JOB_ONLY_NAME: &[&str] = &["kind", "target", "intent", "again", "bundle"];
+const JOB_BRIEF: &[&str] = &["kind", "target", "intent", "again"];
 const COUNT_ONLY_ARGS: &[&str] = &["by", "tests", "again", "job"];
 
 /// The lines an agent runs, as tools. `job import` (a bundle made elsewhere) is a person's.
@@ -64,10 +65,10 @@ pub const TOOLS: &[ToolLine] = &[
     tool("run", "run", &[], &[], "A search on the line is `target` with `kind` (`reach`, `readers_of_env`, ...)."),
     tool("list", "list", &[], &[], ""),
     tool("diff", "diff", &[], &[], ""),
-    tool("job_start", "job", &[("action", "start")], &[], ""),
+    tool("job_start", "job", &[("action", "start")], &["bundle"], ""),
     tool("job_close", "job", &[("action", "close")], JOB_ONLY_NAME, ""),
-    tool("job_brief", "job", &[("action", "brief")], JOB_ONLY_NAME, ""),
-    tool("job_list", "job", &[("action", "list")], &["name", "kind", "target", "intent", "again"], ""),
+    tool("job_brief", "job", &[("action", "brief")], JOB_BRIEF, "`bundle` packs the closed job as one bundle file too."),
+    tool("job_list", "job", &[("action", "list")], &["name", "kind", "target", "intent", "again", "bundle"], ""),
     tool("test", "test", &[], &[], ""),
     tool("check", "check", &[], &[], ""),
     tool("annotate", "annotate", &[], &["apply"], "The plan only: placing it (`--apply`) is a person's."),
@@ -368,7 +369,7 @@ pub fn read(ctx: &mut Ctx, address: &Address) -> Result<String> {
             let row = ctx.journal()?.reading(*seq)?.ok_or_else(|| Code::NoSuchResource.refuse(format!("{}: no reading under receipt #{seq}", address.uri())))?;
             std::fs::read_to_string(ctx.root().join(&row.page)).map_err(|e| Code::ReadingUnreadable.refuse(format!("{}: {e}", row.page)))
         }
-        Address::Brief(id) => Ok(crate::jobs::brief(ctx, Some(id))?.printed.join("\n")),
+        Address::Brief(id) => Ok(crate::jobs::brief(ctx, Some(id), false)?.printed.join("\n")),
     }
 }
 

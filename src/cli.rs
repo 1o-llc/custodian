@@ -150,7 +150,7 @@ fn job(ctx: &mut Ctx, l: &surface::Job) -> Result<Ran> {
     match s(&l.action).as_str() {
         "start" => crate::jobs::start(ctx, &crate::jobs::StartAsk { which: name, kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, ..Default::default() }),
         "close" => crate::jobs::close(ctx, name.as_deref()),
-        "brief" => crate::jobs::brief(ctx, name.as_deref()),
+        "brief" => crate::jobs::brief(ctx, name.as_deref(), l.bundle),
         "import" => crate::jobs::import(ctx, Path::new(name.as_deref().unwrap_or_default()), crate::runtime::Limit::default()),
         _ => crate::jobs::list(ctx),
     }
@@ -242,12 +242,12 @@ pub fn init(ctx: &mut Ctx, mode: FolderMode, macros: bool) -> Result<Ran> {
     Ok(ran)
 }
 
-/// Where the maintenance crate is, until it is on crates.io.
-pub const MAINTENANCE_PATH: &str = "/Users/jameshunt/James/Code/maintenance_macros/crates/maintenance";
+/// The `maintenance` a project's crates get from crates.io: the one custodian itself builds against (Cargo.toml).
+pub const MAINTENANCE: &str = "maintenance@0.1.0";
 
-/// `init --macros`: `maintenance` added to every workspace crate by code_passenger's `dep add` (by path for now),
-/// and `big-bad-bool` to each crate that declares a level word (`sensitivity_levels!`); one declared line and one
-/// receipt each. custodian edits no manifest itself.
+/// `init --macros`: `maintenance` (from crates.io, [`MAINTENANCE`]) added to every workspace crate by
+/// code_passenger's `dep add`, and `big-bad-bool` to each crate that declares a level word (`sensitivity_levels!`);
+/// one declared line and one receipt each. custodian edits no manifest itself.
 fn macros_by_passenger(ctx: &mut Ctx, ran: &mut Ran) -> Result<()> {
     if !crate::maint::passenger_installed() {
         ran.say("--macros: code-passenger is not on PATH; nothing added");
@@ -270,7 +270,7 @@ fn macros_by_passenger(ctx: &mut Ctx, ran: &mut Ran) -> Result<()> {
         words.dedup();
         (crates, words)
     };
-    let mut adds: Vec<(String, Vec<String>)> = crates.iter().map(|c| (c.clone(), vec!["dep".into(), "add".into(), c.clone(), "maintenance".into(), "--path".into(), MAINTENANCE_PATH.into()])).collect();
+    let mut adds: Vec<(String, Vec<String>)> = crates.iter().map(|c| (c.clone(), vec!["dep".into(), "add".into(), c.clone(), MAINTENANCE.into()])).collect();
     adds.extend(words.iter().map(|c| (c.clone(), vec!["dep".into(), "add".into(), c.clone(), "big-bad-bool@0.1.1".into()])));
     for (krate, words) in adds {
         let line = crate::maint::passenger(&root, words.iter().map(String::as_str));

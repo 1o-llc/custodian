@@ -10,8 +10,9 @@
 //! - `job close [ID]`: a passenger checkpoint at close, then the kit's `jobs::close`: the closing count, the lines
 //!   touched, the task history's solutions, changes, verifications and result, the closing receipt in the folder,
 //!   the folder moved to `jobs/done`.
-//! - `job brief [ID]`: the kit's brief (its task history read back through `load_task_history`), with the lines
-//!   touched and the passenger checkpoints.
+//! - `job brief [ID] [--bundle]`: the kit's brief (its task history read back through `load_task_history`), with
+//!   the lines touched and the passenger checkpoints; `--bundle` packs the closed job as `custodian bundle <job>`
+//!   does, so the brief and the one file an agent picks the job up from come from one line.
 //! - `job import BUNDLE`: custodian_kit's job bundle unbundled into the queue and started, its origin the bundle's
 //!   digest. `job list`: every folder by state, with its status from its task record.
 
@@ -256,8 +257,9 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     Ok(ran)
 }
 
-/// `custodian job brief [ID]`: the kit's brief of a closed job, with its lines touched and passenger checkpoints.
-pub fn brief(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
+/// `custodian job brief [ID] [--bundle]`: the kit's brief of a closed job, with its lines touched and passenger
+/// checkpoints; with `bundle`, the job packed as one bundle file too.
+pub fn brief(ctx: &mut Ctx, which: Option<&str>, bundle: bool) -> Result<Ran> {
     let layout = ctx.layout()?.clone();
     let folder = match which {
         Some(w) => find_latest(&layout, "done", w)?,
@@ -290,6 +292,12 @@ pub fn brief(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     ran.print(text);
     ran.say(format!("the facts page of job {which}: {}", ctx.rel(&folder.join("closing.md"))));
     ran.outputs = vec![ctx.rel(&folder.join("closing.md"))];
+    if bundle {
+        let row = ctx.journal()?.job(&which)?.ok_or_else(|| Code::NoSuchJob.refuse(format!("{which} is not in the journal")))?;
+        let b = crate::bundling::bundle_job_by_default(ctx, &row)?;
+        ran.said.extend(b.said);
+        ran.outputs.extend(b.outputs);
+    }
     Ok(ran)
 }
 

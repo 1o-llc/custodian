@@ -11,7 +11,7 @@ keywords = ["klepto", "code-search", "cli", "static-analysis", "maintenance"]
 categories = ["development-tools", "command-line-utilities"]
 
 authors = ["James Hunt <james@1o.business>"]
-repository = "https://github.com/jameshuntt/custodian"
+repository = "https://github.com/1o-llc/custodian"
 readme = "README.md"
 
 include = ["src/**", "hooks/**", "tests/**", "docs/**", "Cargo.toml", "LICENSE*", "README*", "CHANGELOG*"]
@@ -22,7 +22,8 @@ path = "src/main.rs"
 
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
-custodian_kit = { version = "0.1.0", path = "../custodian_kit" }
+# 0.1.1: a job's close reads cargo's test outcomes (`FAILED`), the words custodian writes
+custodian_kit = { version = "0.1.1", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
 task_history = "0.1.0"
 # the checks and the timing report, run as maintenance's own declared lines

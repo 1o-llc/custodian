@@ -6,7 +6,8 @@
 # resident answers when `custodian serve` runs for the project, else the command line runs the reading itself
 # (journaled inside an initialized .custodian folder, where the same file over the same code is a reuse; free mode
 # elsewhere). It prints the reading's counts (items, files, crates, binaries, the declarations naming those
-# binaries) and the binaries the file reaches, then the receipt line. It never blocks the edit: it exits 0.
+# binaries), the binaries the file reaches and the entries naming them (when the reading has declaration sources),
+# then the receipt line. It never blocks the edit: it exits 0.
 #
 # CUSTODIAN names the program (default: custodian on PATH).
 
@@ -25,6 +26,7 @@ custodian=${CUSTODIAN:-custodian}
 out=$(cd "$dir" && "$custodian" run "$file" --kind reach 2>&1)
 printf '%s\n' "$out" | awk '
   /^## binaries/ { show = 1; print "binaries this file reaches:"; next }
+  /^## reach-entry/ { show = 1; print "entries naming those binaries:"; next }
   /^## / { show = 0 }
   show && /^- / { print "  " $0 }
   /^(read |decided|reused|answered|free mode|receipt|\[CUST)/ { print }
