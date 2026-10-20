@@ -1,55 +1,59 @@
 # Changelog
 
-## 0.3.3 (unreleased)
+## 0.3.3 (2026-10-20)
 
-Three lines that only read the records, on custodian_kit 0.3.4: `handoff`,
+Three lines that only read the records, on custodian_kit 0.3.5: `handoff`,
 `why` and `cost`. Each is a declared line with its receipt and an MCP tool.
-Nothing is removed from the API. Every link is pinned to c40fd43; the
-earlier lines are pinned to 633c596 (0.3.1).
+Nothing is removed from the API. Every link is pinned to d61e248; the
+earlier line is pinned to 45642e2 (0.3.2).
 
 - `custodian handoff [JOB] [--for james|agent] [--since SEQ]`
-  ([src/surface.rs#L1132](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/surface.rs#L1132), [src/records.rs#L19](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/records.rs#L19)): the message a
-  person reads after a job, made by custodian_kit's `handoff` from the job's
-  records. What waits on a person comes first. With no job named it is the
-  job closed last; `--since` tells every job that ran after that receipt.
-  Exit 1 when something waits on a person.
-- `custodian why ROUTE` ([src/surface.rs#L1158](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/surface.rs#L1158),
-  [src/records.rs#L50](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/records.rs#L50)): a `crate:` or `decl:` route's task histories,
-  linkage records and readings, and git's first and last commit touching its
-  files. The `git log` is custodian_kit's declared line, run with its own
-  receipt (`command` `git`). Another route is refused by the line's own word
-  check ([src/surface.rs#L1218](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/surface.rs#L1218)).
-- `custodian cost [--job ID] [--since SEQ]` ([src/surface.rs#L1176](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/surface.rs#L1176),
-  [src/records.rs#L95](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/records.rs#L95)): the cost records summed, per reading kind and
-  per job. A reading run here keeps its cost record under its receipt's
-  number ([src/readings.rs#L164](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/readings.rs#L164), kept by the facade:
-  [src/facade.rs#L300](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/facade.rs#L300)), and a reuse keeps the same number as `saved`
-  ([src/readings.rs#L132](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/readings.rs#L132)).
+  ([src/surface.rs#L1230](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/surface.rs#L1230), [src/records.rs#L19](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/records.rs#L19)):
+  the message a person reads after a job, made by custodian_kit's `handoff`
+  from the job's records. What waits on a person comes first. With no job
+  named it is the job closed last; `--since` tells every job that ran after
+  that receipt. Exit 1 when something waits on a person.
+- `custodian why ROUTE` ([src/surface.rs#L1256](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/surface.rs#L1256),
+  [src/records.rs#L50](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/records.rs#L50)): a `crate:` or `decl:` route's task
+  histories, linkage records and readings, and git's first and last commit
+  touching its files. The `git log` is custodian_kit's declared line, run
+  with its own receipt (`command` `git`). Another route is refused by the
+  line's own word check ([src/surface.rs#L1316](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/surface.rs#L1316)).
+- `custodian cost [--job ID] [--since SEQ]` ([src/surface.rs#L1274](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/surface.rs#L1274),
+  [src/records.rs#L95](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/records.rs#L95)): the cost records summed, per reading
+  kind and per job. A reading run here keeps its cost record under its
+  receipt's number ([src/readings.rs#L173](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/readings.rs#L173), kept
+  by the facade: [src/facade.rs#L311](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/facade.rs#L311)),
+  and a reuse keeps the same number as `saved`
+  ([src/readings.rs#L132](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/readings.rs#L132)).
 - `agent brief` says `tokens: ~N read, ~M saved by reuse (estimate: bytes/4
-  of the files each reading touched)` ([src/agent.rs#L198](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/agent.rs#L198)); before it
-  said "tokens: not measured here (no source in the records)"
-  ([src/agent.rs#L198](https://github.com/1o-llc/custodian/blob/633c596fc18251a72c1089558c823845da011ef3/src/agent.rs#L198)).
+  of the files each reading touched)` ([src/agent.rs#L198](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/agent.rs#L198));
+  before it said "tokens: not measured here (no source in the records)"
+  ([src/agent.rs#L198](https://github.com/1o-llc/custodian/blob/45642e295a72c78952ee85aa4f85979f8a306faf/src/agent.rs#L198)).
 - The three lines are tools: `handoff`, `why`, `cost`
-  ([src/mcp.rs#L90](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/src/mcp.rs#L90)). The help lines and the tool list's goldens have
-  them; both diffs only add.
+  ([src/mcp.rs#L91](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/src/mcp.rs#L91)). The help lines and the tool list's
+  goldens have them; both diffs only add.
 
-Proof: `cargo test` has 62 tests, the 57 of 0.3.1 and five new in
-[tests/records.rs#L1](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L1). `a_handoff_after_a_finished_job_is_its_records_in_order`
-([tests/records.rs#L59](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L59)) pins a fixture job's handoff whole
-(`tests/golden/handoff_fixture.txt`, its times and job id read as words).
+Proof: `cargo test` has 63 tests, the 58 of 0.3.2 and five new in
+`tests/records.rs`. `a_handoff_after_a_finished_job_is_its_records_in_order`
+([tests/records.rs#L68](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/tests/records.rs#L68)) pins a fixture
+job's handoff whole (`tests/golden/handoff_fixture.txt`, its times, job id
+and run count read as words).
 `a_handoff_says_what_waits_on_a_person_first_and_the_agent_gets_the_lines`
-([tests/records.rs#L89](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L89)), `why_says_who_introduced_a_route_and_for_what_from_the_records_and_git`
-([tests/records.rs#L109](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L109)) and
+([tests/records.rs#L98](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/tests/records.rs#L98)),
+`why_says_who_introduced_a_route_and_for_what_from_the_records_and_git`
+([tests/records.rs#L118](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/tests/records.rs#L118)) and
 `a_readings_cost_is_its_files_a_reuse_saves_it_and_the_brief_says_both`
-([tests/records.rs#L137](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L137)): the cost is the sum of the bytes on disk of
-the files the reading names, and the reuse's `saved` equals it.
-`the_real_jobs_read_as_pinned` ([tests/records.rs#L172](https://github.com/1o-llc/custodian/blob/c40fd43a49a4dcd6b910fa64afb34185f5796f5e/tests/records.rs#L172)) runs `handoff`
+([tests/records.rs#L146](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/tests/records.rs#L146)): the cost is the
+sum of the bytes on disk of the files the reading names, and the reuse's
+`saved` equals it. `the_real_jobs_read_as_pinned`
+([tests/records.rs#L181](https://github.com/1o-llc/custodian/blob/d61e248cdf3d9d32292d387f7223f30f6ad792c4/tests/records.rs#L181)) runs `handoff`
 over real projects' records and compares each text with its pinned one; the
 records and the texts are private, so it runs only when
 `CUSTODIAN_PRIVATE_CORPUS` names them. Over three real jobs (a bounded job
 closed failed_test, an unbounded job pending on two decisions, a reading job
-accepted), five texts read as pinned. The rustdoc JSON of 0.3.1 against
-this: 2,589 public items before, 2,696 after, 107 added, 0 removed or
+accepted), five texts read as pinned. The rustdoc JSON of 0.3.2 against
+this: 2,737 public items before, 2,844 after, 107 added, 0 removed or
 changed.
 
 ## 0.3.2 (2026-10-20)
