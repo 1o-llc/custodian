@@ -129,6 +129,11 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
                 ran.print(text);
             }
             ran.say(format!("reused: {} (search #{})", row.page, row.seq));
+            // the reuse saves what the reading it reused cost
+            let reused = ctx.journal()?.receipt(row.seq)?;
+            if let (Some(store), Some(r)) = (custodian_kit::store::Store::find(ctx.root()), reused) {
+                ran.cost = custodian_kit::cost::reading_cost(ctx.root(), &store, &r).map(|c| custodian_kit::cost::reuse_record(0, "", ask.job.as_deref(), &c));
+            }
             let report = custodian_kit::reading::load(&ctx.root().join(&row.record)).ok();
             return Ok((ran, report));
         }
@@ -165,6 +170,8 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
                 }
             }
             ran.outputs = vec![page_rel.clone(), record_rel.clone()];
+            // what reading the same files by hand would have cost; the facade keeps it under the receipt's number
+            ran.cost = Some(custodian_kit::cost::read_record(ctx.root(), 0, "", ask.job.as_deref(), &reading.report));
             ran.reading = Some(ReadingRow {
                 seq: 0,
                 name: spec.name.clone(),

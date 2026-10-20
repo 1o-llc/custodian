@@ -7,7 +7,7 @@
 //! ([`readings`]); jobs are folders ([`jobs`]) run by the runner (scope for a job's steps, waker_protocol for the
 //! queue with checkpoints, [`runtime`]) and watched by the observer set ([`observe`]); the resident answers on an
 //! owner-only socket ([`serve`]). [`testing`], [`maint`], [`diag`], [`bundling`] and [`install`] are the rest of
-//! the lines; `mcp` (feature `mcp`, on by default) serves the agent's lines as MCP tools made from their
+//! the lines; [`records`] answers `handoff`, `why` and `cost` from the records alone; `mcp` (feature `mcp`, on by default) serves the agent's lines as MCP tools made from their
 //! declarations. Refusals are one liaise table ([`codes`]); option sets are big-bad-bool words ([`words`]); every
 //! digest is stable_digest over one canonical form ([`digest`]); the gates are xccute decisions ([`decide`]).
 
@@ -35,6 +35,7 @@ pub mod mcp;
 pub mod mode;
 pub mod observe;
 pub mod readings;
+pub mod records;
 pub mod runtime;
 pub mod serve;
 pub mod surface;

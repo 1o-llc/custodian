@@ -1,0 +1,25 @@
+# handoff: batch (job-ID)
+
+The job batch ran unbounded from DATE HH:MMZ to HH:MMZ, 13 runs. It closed accepted.
+
+## Waiting on a person
+Nothing is waiting on a person.
+
+## What it was for
+say where the metrics are served.
+
+## What changed
+4 lines added and 0 removed, across 1 file in 1 crate.
+- core_lib: +4 −0 in 1 file
+No change spec was written through a transform.
+
+## What was decided
+No decision of this job's task was answered.
+
+## What was verified
+The verification test:config_names is satisfied.
+3 tests ran in 1 test line between DATE HH:MMZ and HH:MMZ: 3 passed, 0 failed.
+4 readings were made and 1 reused.
+
+## What runs next
+Nothing: the job is complete.

@@ -88,6 +88,9 @@ pub const TOOLS: &[ToolLine] = &[
     tool("linkage_add", "linkage add", &[], ""),
     tool("linkage_check", "linkage check", &[], ""),
     tool("exercise_report", "exercise report", &[], "What an exercise found: what to fix first, every finding with its receipt."),
+    tool("handoff", "handoff", &[], "After a job: the message its records make, what waits on a person first; `reader` `agent` adds the lines to run."),
+    tool("why", "why", &[], "Before changing a crate: why it is there, from the records."),
+    tool("cost", "cost", &[], ""),
 ];
 
 /// The lines that are a person's, never a tool, and why.

@@ -143,6 +143,9 @@ custodian run core_lib::Config --kind impact
 custodian plan make "add a digest to the config"
 custodian job start digest --mode bounded --target core_lib::Config --verify test:core_lib
 custodian preflight config-digest      # then: custodian transform config-digest --write
+custodian handoff                      # after a job: what waits on a person, what it was for, what changed, what runs next
+custodian why crate:core_lib           # who introduced a route and for what, from the records and git
+custodian cost                         # the tokens readings stood for, read and saved by reuse
 ```
 
 A spec is a small TOML file:
@@ -185,10 +188,54 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `decide [ID ANSWER] [--why TEXT]` | the open decisions together; one answered, never asked again |
 | `linkage add NAME --kind K --why TEXT --bind A --bind B`, `linkage check [TARGET]` | why declarations are bound together, each bind resolved; stale, to review or holding |
 | `exercise [--ops OPS] [--units UNITS] [--n N] [--tests] [--crate R] [--intents FILE] [--seed S]`, `exercise report [JOB]` | custodian_kit's `exercise` job: each operation tried on N targets of each unit kind it applies to, each on a copy in the job's data folder (spec, preflight, transform, cargo check, tests, the closing check); every refusal, compile error or uncovered file a finding with its receipt; `--intents`: one intent a line through the cheap model (`claude -p --model claude-haiku-4-5-20251001`), `not run: no model` without one; `report`: the summary, what to fix first |
+| `handoff [JOB] [--for james\|agent] [--since SEQ]` | the message a person reads after a job (the last closed one by default; with `--since`, every job that ran after that receipt), from the records only; exit 1 when something waits on a person |
+| `why ROUTE` | for a `crate:` or `decl:` route: the task histories whose changes touch it, the linkage records binding it, the readings about it, git's first and last commit touching its files |
+| `cost [--job ID] [--since SEQ]` | readings against reuses, the tokens they stood for against the tokens reuse saved, per reading kind and per job |
 
 `custodian` with no words prints these lines with their help, generated from the declarations
 (`tests/golden/help.txt` holds them). The 0.1.0 spellings `count [ROUTE]`, `test [--all]` and `plan INTENT` still
 read.
+
+## After a job: handoff, why, cost
+
+These three lines only read. Nothing in what they print is written by hand.
+
+`custodian handoff [JOB]` reads a job's records: its job file, its closing receipt (`closing.json`), the receipts
+it ran, its task history (intent, change, verification, problem, solution and result records), its transform
+records and its count diff. It says, in this order:
+
+1. what is waiting on a person: open decisions, change specs a preflight refused that never ran, a verification
+   not satisfied, a refused close, files touched by hand in a bounded job;
+2. what the job was for: the last intent record of its task, and its target;
+3. what changed: lines added and removed in all and per crate (from the count diff), and each change spec a
+   transform wrote, with its operation, target, time and receipt;
+4. what was decided: each decision of the job's task, its answer, its reason and who gave it (the record's `by`;
+   when the record names no one, it says so), with the decide line's receipt;
+5. what was verified: each declared verification, the test lines with passed, failed and ignored counts, a line
+   that stopped before any test reported, which failures are pre-existing (a failure is pre-existing when a
+   closed job's test run before this job's first transform failed the same test; otherwise it says it is not
+   known), and the readings made, reused and refused;
+6. what runs next, in sentences.
+
+`--for agent` adds the exact lines to run (the `decide`, `preflight`, `job start`, `run`, `cargo test` and
+`job close` lines) and the routes and targets the job read. Every time is UTC from a receipt. Every list stops
+at five with "… and N more", the next steps at eight, and the whole message at sixty lines; `job brief` has every
+fact. `--since SEQ` keeps only what came after that receipt, and with no job named it tells every job that ran
+after it.
+
+`custodian why ROUTE` takes a `crate:` or `decl:` route. It lists the task revisions whose change records touch
+the route's files (with each one's intent, result and job), the linkage records that bind it (and what else each
+binds), and the readings whose target is the route, its crate, or an item of the crate. git's first and last
+commit touching the files come from custodian_kit's declared `git log` line, run with its own receipt. A section
+the records leave empty says "no record".
+
+`custodian cost` sums the cost records. A reading's cost is the files its answer names: each row's file, else,
+for a row that names a crate and no file, that crate's `Cargo.toml`. Their bytes are read when the reading is
+made, and tokens are estimated as bytes / 4. No tokenizer runs; the number says how much there was to read by
+hand, not what a model would bill. A reuse saves the cost of the reading it reused, the same number. Each run's
+record is `.custodian/data/costs/<seq>.json`, under its receipt's number; the receipt itself is unchanged.
+Readings made before costs were kept are counted as not measured. `agent brief` says
+`tokens: ~N read, ~M saved by reuse (estimate: bytes/4 of the files each reading touched)`.
 
 ## The folder
 
@@ -204,6 +251,7 @@ read.
 .custodian/jobs.lock                      held by job start, job close and the queue
 .custodian/data/readings/<name>/<stamp>.{md,json}   every reading, dated, none overwritten
 .custodian/data/receipts/<seq>.json       one receipt per run
+.custodian/data/costs/<seq>.json          a reading's cost, or a reuse's saving, under its receipt's number
 .custodian/data/inventory.md              the inventory
 .custodian/state/journal.sqlite           the journal
 .custodian/state/jobs/<state>/<job>/      a job's folder: its specs, readings, closing.md, closing.json
@@ -266,7 +314,7 @@ by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a searc
 `test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
 `diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
 `count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add`,
-`linkage_check` and `exercise_report`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,
+`linkage_check`, `exercise_report`, `handoff` (its `reader` `agent` adds the lines to run), `why` and `cost`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,
 `watch`, `self *`, `mcp serve` and `exercise run` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
 declared one or the other in `src/mcp.rs`.
 

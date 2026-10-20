@@ -127,6 +127,9 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::LinkageCheck(l) => crate::changes::linkage_check(ctx, so(&l.target).as_deref()),
         Line::ExerciseRun(l) => crate::exercise::run(ctx, l),
         Line::ExerciseReport(l) => crate::exercise::report(ctx, so(&l.job).as_deref()),
+        Line::Handoff(l) => crate::records::handoff(ctx, so(&l.job).as_deref(), so(&l.reader).as_deref(), so(&l.since).and_then(|v| v.parse().ok())),
+        Line::Why(l) => crate::records::why(ctx, &s(&l.route)),
+        Line::Cost(l) => crate::records::cost(ctx, so(&l.job).as_deref(), so(&l.since).and_then(|v| v.parse().ok())),
     }
 }
 

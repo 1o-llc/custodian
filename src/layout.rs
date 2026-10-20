@@ -91,6 +91,8 @@ kit_parts! {
     IntentPlan => INTENT_PLAN,
     /// `data/trees/{point}.json`: a tree snapshot.
     Tree => TREE,
+    /// `data/costs/{seq}.json`: a reading's cost, or a reuse's saving, under its receipt's number.
+    CostFile => COST,
 }
 
 /// The parts the command line alone writes (a reading's record, a check's JSON, a log read from stdin), one

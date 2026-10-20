@@ -176,6 +176,9 @@ macro_rules! leaf {
 #[composite(command = "decide", ty = Decide)]
 #[composite(surface = "linkage", ty = Linkage)]
 #[composite(surface = "exercise", ty = Exercise)]
+#[composite(command = "handoff", ty = Handoff)]
+#[composite(command = "why", ty = Why, init = "route")]
+#[composite(command = "cost", ty = Cost)]
 pub struct Custodian;
 
 /// `custodian agent init|brief|guard`.
@@ -1214,6 +1217,72 @@ leaf! {
     }
 }
 
+leaf! {
+    /// The message a person reads after a job, from the records only: what waits on a person first, then what the
+    /// job was for, what changed, what was decided and by whom, what was verified, and what runs next; short, every
+    /// list cut with "… and N more".
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "handoff")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct Handoff {
+        /// The job's id or name (the job closed last by default; with `--since`, every job that ran after it).
+        #[builder(into)]
+        #[arg(positional, each = plain)]
+        pub job: Option<OsString>,
+        /// Who reads it: `james` (sentences) or `agent` (the exact lines to run and the routes too).
+        #[builder(into)]
+        #[arg(kv = "--for", each = reader_word)]
+        pub reader: Option<OsString>,
+        /// Only what happened after this receipt.
+        #[builder(into)]
+        #[arg(kv = "--since", each = number)]
+        pub since: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// Who introduced a crate: or decl: route and for what: the task histories whose changes touch it, the linkage
+    /// records binding it, the readings about it, and git's first and last commit touching its files (a git log
+    /// line with its receipt); "no record" where the records say nothing.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "why")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct Why {
+        /// A `crate:` or `decl:` route.
+        #[builder(init_required, into)]
+        #[arg(positional, each = route_word)]
+        pub route: OsString,
+    }
+}
+
+leaf! {
+    /// The tokens readings stood for: read against reused, the tokens an agent would have spent reading the same
+    /// files by hand against the tokens reuse saved, per reading kind and per job (an estimate: bytes/4 of the
+    /// files each reading touched).
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "cost")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct Cost {
+        /// One job's runs only.
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+        /// Only the runs after this receipt.
+        #[builder(into)]
+        #[arg(kv = "--since", each = number)]
+        pub since: Option<OsString>,
+    }
+}
+
 // ---- the words each field takes ----
 
 fn refuse(field: &str, msg: String) -> CommandValidationResult {
@@ -1241,6 +1310,14 @@ fn number(field: &str, word: &OsStr) -> CommandValidationResult {
         return refuse(field, format!("{word:?} is not a number"));
     }
     Ok(())
+}
+
+/// A route `why` reads: `crate:<name>[/<file>]` or `decl:<name>`.
+fn route_word(field: &str, word: &OsStr) -> CommandValidationResult {
+    match word.to_str() {
+        Some(w) if (w.starts_with("crate:") && w.len() > 6) || (w.starts_with("decl:") && w.len() > 5) => Ok(()),
+        _ => refuse(field, format!("{word:?} is not a crate: or decl: route")),
+    }
 }
 
 fn one_of(field: &str, word: &OsStr, words: &[&str]) -> CommandValidationResult {
@@ -1304,6 +1381,7 @@ word_sets! {
     by_word => ["crate", "language"];
     only_word => ["src"];
     redact_word => ["secret"];
+    reader_word => custodian_kit::handoff::Reader::WORDS;
 }
 
 fn transform_valid(line: &Transform) -> CommandValidationResult {
@@ -1513,6 +1591,9 @@ lines! {
     LinkageCheck(LinkageCheck) = ["linkage", "check"] in Linkage => read_linkage_check;
     ExerciseRun(ExerciseRun) = ["exercise", "run"] in Exercise => read_exercise_run;
     ExerciseReport(ExerciseReport) = ["exercise", "report"] in Exercise => read_exercise_report;
+    Handoff(Handoff) = ["handoff"] in root => read_handoff;
+    Why(Why) = ["why"] in root => read_why;
+    Cost(Cost) = ["cost"] in root => read_cost;
 }
 
 /// The usage screen's lines: the root's help lines, generated from the declarations.
@@ -1793,6 +1874,18 @@ fn read_exercise_report(w: &mut Words) -> Result<ExerciseReport> {
     Ok(ExerciseReport { job: pos(w) })
 }
 
+fn read_handoff(w: &mut Words) -> Result<Handoff> {
+    Ok(Handoff { reader: kv(w, "--for")?, since: kv(w, "--since")?, job: pos(w) })
+}
+
+fn read_why(w: &mut Words) -> Result<Why> {
+    Ok(Why { route: need(w, "route (crate:<name> or decl:<name>)", "why")? })
+}
+
+fn read_cost(w: &mut Words) -> Result<Cost> {
+    Ok(Cost { job: kv(w, "--job")?, since: kv(w, "--since")? })
+}
+
 /// A field as a string.
 pub fn s(v: &OsString) -> String {
     v.to_string_lossy().into_owned()
@@ -1868,6 +1961,11 @@ mod tests {
             Custodian::exercise().run().ops("add_field,rename").units("item,function").n("2").tests().krate("core_lib").intents("intents.txt").seed("7").argv(),
             Custodian::exercise().run().argv(),
             Custodian::exercise().report().job("exercise-1").argv(),
+            Custodian::handoff().job("hold").reader("agent").since("107").argv(),
+            Custodian::handoff().argv(),
+            Custodian::why("crate:core_lib").argv(),
+            Custodian::cost().job("j-1").since("4").argv(),
+            Custodian::cost().argv(),
         ];
         let mut paths: Vec<String> = lines.iter().map(|l| read(l).unwrap_or_else(|e| panic!("{l:?}: {e}")).path().to_string()).collect();
         paths.sort();
@@ -1914,6 +2012,9 @@ mod tests {
         assert!(read(&words("deploy")).unwrap_err().to_string().contains("the lines are: init"));
         assert!(read(&words("job start --verify nonsense")).is_err());
         assert!(read(&words("transform")).is_err() && read(&words("transform s.toml --revert r.json")).is_err());
+        assert!(read(&words("why core_lib")).unwrap_err().to_string().contains("not a crate: or decl: route"));
+        assert!(read(&words("handoff --for everyone")).is_err() && read(&words("cost --since ten")).is_err());
+        assert_eq!(read(&words("handoff --since 7 --for agent j-1")).unwrap().display(), "custodian handoff j-1 --for agent --since 7");
         // the spellings from before the surfaces
         assert_eq!(read(&words("count crate:core_lib --by language")).unwrap().display(), "custodian count of crate:core_lib --by language");
         assert_eq!(read(&words("test --all")).unwrap().display(), "custodian test run --all");

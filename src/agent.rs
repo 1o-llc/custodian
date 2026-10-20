@@ -194,8 +194,11 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
         let read = receipts.iter().filter(|r| r.command == "reading" && r.reused_seq.is_none()).count();
         let preflight_ms: i64 = receipts.iter().filter(|r| r.command == "preflight").map(|r| r.millis).sum();
         let asked = asked_records(&store)?;
+        // the tokens readings stood for: the cost records custodian_kit keeps under each reading's and reuse's receipt
+        let costs = custodian_kit::cost::sum(&custodian_kit::cost::load_all(&custodian_kit::cost::dir(&store)?), &receipts, None, None);
+        let unmeasured = if costs.unmeasured.is_empty() { String::new() } else { format!("\n- readings made before costs were kept: {} (not measured)", costs.unmeasured.len()) };
         s.push_str(&format!(
-            "\n## what the records saved\n\n- runs: {} (each a receipt)\n- searches reused rather than read again: {reused} (read: {read})\n- preflight time: {preflight_ms} ms over {} preflights\n- decisions asked: {} ({} answered, {} open); asked before a job changed code: {}, after: {}\n- jobs completed: {} of {} closed\n- tokens: not measured here (no source in the records)\n",
+            "\n## what the records saved\n\n- runs: {} (each a receipt)\n- searches reused rather than read again: {reused} (read: {read})\n- preflight time: {preflight_ms} ms over {} preflights\n- decisions asked: {} ({} answered, {} open); asked before a job changed code: {}, after: {}\n- jobs completed: {} of {} closed\n- {}{unmeasured}\n",
             receipts.len(),
             receipts.iter().filter(|r| r.command == "preflight").count(),
             asked.0,
@@ -204,7 +207,8 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
             asked.1,
             asked.2,
             done_n.1,
-            done_n.0
+            done_n.0,
+            custodian_kit::cost::brief_line(&costs)
         ));
     }
     // the next lines, exactly

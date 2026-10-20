@@ -737,5 +737,66 @@
       },
       "type": "object"
     }
+  },
+  {
+    "name": "handoff",
+    "description": "Runs `custodian handoff`, a declared line; every run leaves a receipt. After a job: the message its records make, what waits on a person first; `reader` `agent` adds the lines to run.\n\nThe message a person reads after a job, from the records only: what waits on a person first, then what the job was for, what changed, what was decided and by whom, what was verified, and what runs next; short, every list cut with \"… and N more\".",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "The job's id or name (the job closed last by default; with `--since`, every job that ran after it). (a word on the line)",
+          "type": "string"
+        },
+        "reader": {
+          "description": "Who reads it: `james` (sentences) or `agent` (the exact lines to run and the routes too). (`--for`)",
+          "enum": [
+            "james",
+            "agent"
+          ],
+          "type": "string"
+        },
+        "since": {
+          "description": "Only what happened after this receipt. (`--since`)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "why",
+    "description": "Runs `custodian why`, a declared line; every run leaves a receipt. Before changing a crate: why it is there, from the records.\n\nWho introduced a crate: or decl: route and for what: the task histories whose changes touch it, the linkage records binding it, the readings about it, and git's first and last commit touching its files (a git log line with its receipt); \"no record\" where the records say nothing.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "route": {
+          "description": "A `crate:` or `decl:` route. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "route"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "cost",
+    "description": "Runs `custodian cost`, a declared line; every run leaves a receipt.\n\nThe tokens readings stood for: read against reused, the tokens an agent would have spent reading the same files by hand against the tokens reuse saved, per reading kind and per job (an estimate: bytes/4 of the files each reading touched).",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "One job's runs only. (`--job`)",
+          "type": "string"
+        },
+        "since": {
+          "description": "Only the runs after this receipt. (`--since`)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
   }
 ]

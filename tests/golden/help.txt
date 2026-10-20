@@ -51,6 +51,9 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian exercise run [--ops OPS] [--units UNITS] [--n N] [--tests] [--crate KRATE] [--intents INTENTS] [--seed SEED]
                                                                             Custodian's own change path tried on copies of the project, every result a receipt
   custodian exercise report [JOB]                                           An exercise job's summary, the newest when none is named
+  custodian handoff [JOB] [--for READER] [--since SINCE]                    The message a person reads after a job, from the records only: what waits on a person first, then what the job was for, what changed, what was decided and by whom, what was verified, and what runs next; short, every list cut with "… and N more"
+  custodian why ROUTE                                                       Who introduced a crate: or decl: route and for what: the task histories whose changes touch it, the linkage records binding it, the readings about it, and git's first and last commit touching its files (a git log line with its receipt); "no record" where the records say nothing
+  custodian cost [--job JOB] [--since SINCE]                                The tokens readings stood for: read against reused, the tokens an agent would have spent reading the same files by hand against the tokens reuse saved, per reading kind and per job (an estimate: bytes/4 of the files each reading touched)
 
 exit status: 0 done, 1 findings, 2 refused. Inside an initialized folder (.custodian here or above) every run is journaled; elsewhere it is free mode and nothing is stored.
 

@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.3.3"
+version = "0.3.4"
 dependencies = [
  "big-bad-bool",
  "bundles",
@@ -689,6 +689,7 @@ dependencies = [
  "xccute_contract",
  "xccute_decisions",
  "xccute_runtime",
+ "zstd",
 ]
 
 [[package]]

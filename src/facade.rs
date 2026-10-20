@@ -59,6 +59,8 @@ pub struct Ran {
     /// Where the parsed index the run read came from (`parsed (31204 ms)`, `from cache (812 ms)`, `from daemon`): its
     /// receipt's reason says it.
     pub index: Option<String>,
+    /// A reading's cost, or a reuse's saving (custodian_kit's `cost`): kept under this run's receipt number.
+    pub cost: Option<custodian_kit::cost::CostRecord>,
 }
 
 impl Ran {
@@ -237,7 +239,7 @@ impl Ctx {
 /// What ran, in custodian_kit's words for a receipt's `command` (`reading`, `test`, `check`, `git`, `gate`,
 /// `job-close`): the journal's one vocabulary, which the kit's job close reads to list a job's readings, its tests
 /// and its checks. A program's line whose kind the kit names is written with the kit's word.
-pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("code-passenger.gate", "gate"), ("code-passenger.transform", "transform")];
+pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("git.log", "git"), ("code-passenger.gate", "gate"), ("code-passenger.transform", "transform")];
 
 /// The kit's word for a line that answered a spec, read or reused (`custodian run`, `count`, `diagnostics`,
 /// `bundle`, `sweep`).
@@ -304,6 +306,13 @@ pub fn execute(ctx: &mut Ctx, line: &Line, handler: impl FnOnce(&mut Ctx, &Line)
         row.seq = receipt.seq;
         if let Err(e) = j.index_reading(&row) {
             said.push(format!("the reading was not indexed: {e}"));
+        }
+    }
+    if let (Some(rec), Some(layout)) = (&ran.cost, ctx.mode.project().map(|p| p.layout.clone())) {
+        let rec = custodian_kit::cost::CostRecord { seq: receipt.seq, utc: receipt.utc.clone(), job: receipt.job.clone(), ..rec.clone() };
+        match layout.dir::<layout::CostFile>(&[("seq", "1")]).map_err(|e| e.to_string()).and_then(|d| custodian_kit::cost::keep_in(&d, &rec).map_err(|e| e.to_string())) {
+            Ok(_) => said.push(custodian_kit::cost::said(&rec)),
+            Err(e) => said.push(format!("the cost record was not kept: {e}")),
         }
     }
     if let (Some((action, bin, dest, sha, json)), Some(j)) = (&ran.install, ctx.journal.as_ref()) {
