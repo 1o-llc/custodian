@@ -147,6 +147,10 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
     }
     s.push_str(&format!("\n## work not completed ({} of {} closed jobs completed)\n\n{}\n", done_n.1, done_n.0, if outstanding.is_empty() { "none".to_string() } else { outstanding.join("\n") }));
     if !head {
+        // what waits will cost, each figure measured from this workspace's receipts or said unknown
+        if let Some(p) = crate::budget::planned_line(ctx)? {
+            s.push_str(&format!("\n## planned cost\n\n{p}\n"));
+        }
         // the latest reading of each spec, and whether the code moved since
         let readings = journal.readings()?;
         let mut latest: BTreeMap<&str, &crate::journal::ReadingRow> = BTreeMap::new();

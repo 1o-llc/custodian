@@ -439,6 +439,11 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--allow-file", each = nonempty)]
         pub allow_file: Vec<OsString>,
+        /// The job's budget, `hours=<n>,battery=<percent>`: a step whose measured time would take the job past its
+        /// hours is refused before it starts; under the battery floor no cargo line starts.
+        #[builder(into)]
+        #[arg(kv = "--budget", each = nonempty)]
+        pub budget: Option<OsString>,
     }
 }
 
@@ -987,10 +992,16 @@ leaf! {
     #[exit_status(code = 1, word = "findings")]
     #[exit_status(code = 2, word = "refused")]
     pub struct Preflight {
-        /// The change spec (`v1.<name>.1o.change`, or its TOML twin).
+        /// The change spec (`v1.<name>.1o.change`, or its TOML twin); with `--batch`, a file naming one change spec a
+        /// line.
         #[builder(init_required, into)]
         #[arg(positional, each = nonempty)]
         pub spec: OsString,
+        /// The spec is a batch: every member preflighted over one reading of the code (one scan, one code digest),
+        /// each member's preconditions checked as its own preflight checks them, one receipt listing each member and
+        /// its verdict (the batch transform's gate).
+        #[arg(flag = "--batch")]
+        pub batch: bool,
         /// The job it is part of (the running one by default).
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
@@ -1722,6 +1733,7 @@ fn read_job_start(w: &mut Words) -> Result<JobStart> {
         again: w.flag("--again"),
         baseline: w.flag("--baseline"),
         allow_file: w.kvs("--allow-file")?.into_iter().map(OsString::from).collect(),
+        budget: kv(w, "--budget")?,
         name: pos(w),
     })
 }
@@ -1847,7 +1859,7 @@ fn read_mcp_serve(w: &mut Words) -> Result<McpServe> {
 }
 
 fn read_preflight(w: &mut Words) -> Result<Preflight> {
-    Ok(Preflight { job: kv(w, "--job")?, spec: need(w, "change spec", "preflight")? })
+    Ok(Preflight { batch: w.flag("--batch"), job: kv(w, "--job")?, spec: need(w, "change spec", "preflight")? })
 }
 
 fn read_transform(w: &mut Words) -> Result<Transform> {

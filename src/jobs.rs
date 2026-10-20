@@ -115,6 +115,8 @@ pub struct StartAsk {
     pub baseline: bool,
     /// Files the job may touch that no operation writes, as globs.
     pub allow_file: Vec<String>,
+    /// The job's budget, `hours=<n>,battery=<percent>`.
+    pub budget: Option<String>,
 }
 
 /// The passenger checkpoints a job took, kept in its folder: `{ "open": id, "close": id }`.
@@ -212,6 +214,9 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
             jf.allow_file.push(g.clone());
         }
     }
+    if let Some(b) = &ask.budget {
+        jf.budget = Some(custodian_kit::step_time::Budget::parse(b)?.word());
+    }
     write_job_file(&folder, &jf)?;
     let started = {
         let k = kit(ctx);
@@ -235,6 +240,15 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     checkpoint(ctx, &started.id, &started.folder, "open", &mut ran)?;
     if started.runs.iter().any(|r| r.receipt.as_ref().is_some_and(|x| !x.accepted)) {
         ran.code = 1;
+    }
+    // what it will cost, from this workspace's receipts, and the budget it runs under
+    if let Some(p) = crate::budget::planned_line(ctx)? {
+        ran.say(format!("planned cost: {p}"));
+    }
+    if let Some(store) = custodian_kit::store::Store::find(ctx.root()) {
+        if let Some(b) = custodian_kit::step_time::budget_of(&store, &custodian_kit::jobs::job_file(&started.folder))? {
+            ran.say(format!("budget: {} (a step whose measured time would pass it is refused before it starts)", b.word()));
+        }
     }
     ran.say(format!("job {} is open: readings run now are tagged with it; custodian job close {} writes the closing receipt", started.id, started.id));
     ran.name = started.id.clone();

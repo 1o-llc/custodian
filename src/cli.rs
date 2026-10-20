@@ -117,6 +117,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::SelfUninstall(l) => crate::install::self_line(ctx, &SelfAsk { action: "uninstall", bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), force: l.force, ..SelfAsk::default() }),
         Line::SelfStatus(l) => crate::install::self_line(ctx, &SelfAsk { action: "status", bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), ..SelfAsk::default() }),
         Line::McpServe(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
+        Line::Preflight(l) if l.batch => crate::changes::preflight_batch(ctx, &s(&l.spec), so(&l.job)),
         Line::Preflight(l) => crate::changes::preflight(ctx, &s(&l.spec), so(&l.job)),
         Line::Transform(l) if l.batch.is_some() => crate::changes::transform_batch_with(ctx, &s(l.batch.as_ref().unwrap_or(&OsString::new())), so(&l.after_proof).as_deref(), l.write, l.tests, l.preflight, so(&l.job)),
         Line::Transform(l) => crate::changes::transform_with(ctx, so(&l.spec).as_deref(), l.write, l.tests, so(&l.revert).as_deref(), so(&l.job)),
@@ -189,7 +190,7 @@ fn job_start(ctx: &mut Ctx, l: &surface::JobStart) -> Result<Ran> {
     need_agent(ctx)?;
     crate::jobs::start(
         ctx,
-        &crate::jobs::StartAsk { which: so(&l.name), kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, mode: so(&l.mode), verify: l.verify.iter().map(s).collect(), baseline: l.baseline, allow_file: l.allow_file.iter().map(s).collect(), ..Default::default() },
+        &crate::jobs::StartAsk { which: so(&l.name), kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, mode: so(&l.mode), verify: l.verify.iter().map(s).collect(), baseline: l.baseline, allow_file: l.allow_file.iter().map(s).collect(), budget: so(&l.budget), ..Default::default() },
     )
 }
 

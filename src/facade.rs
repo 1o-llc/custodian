@@ -434,6 +434,11 @@ pub fn spawn(mut ext: External) -> Result<(std::process::Child, External)> {
 /// Runs an external line to its end through the runtime, showing each stdout line to `each` as it comes, and keeps
 /// its receipt.
 pub fn run_external(ctx: &mut Ctx, ext: External, names: ExternalNames, mut each: impl FnMut(&str)) -> Result<ExternalRun> {
+    // James's battery rule: a cargo line (declared, or a shell line that runs cargo) does not start on a dying battery
+    let shown = ext.preview.argv().last().map(|a| a.to_string_lossy().into_owned()).unwrap_or_default();
+    if custodian_kit::power::is_cargo(ext.preview.program()) || ext.logical_id.starts_with("cargo.") || shown.starts_with("cargo ") {
+        custodian_kit::power::cargo_may_start()?;
+    }
     let started = Instant::now();
     let (mut child, ext) = spawn(ext)?;
     let mut err_pipe = child.stderr.take();

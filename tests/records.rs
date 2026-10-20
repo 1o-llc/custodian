@@ -57,7 +57,18 @@ fn steady(text: &str) -> String {
             i += 1;
         }
     }
-    s
+    // a measured time per step (`(0.1 s each)`): the machine's, not the handoff's
+    let mut out = String::new();
+    let mut rest = s.as_str();
+    while let Some(i) = rest.find(" s each)") {
+        let head = &rest[..i];
+        let start = head.rfind('(').map(|p| p + 1).unwrap_or(i);
+        out.push_str(&head[..start]);
+        out.push_str("T s each)");
+        rest = &rest[i + " s each)".len()..];
+    }
+    out.push_str(rest);
+    out
 }
 
 fn job_id(out: &str) -> String {

@@ -234,6 +234,42 @@ fn a_batch_preflights_its_members_in_one_run() {
     assert!(ok_with(&d, &["job", "close"], b, 0).contains("result: accepted"));
 }
 
+/// `preflight --batch LIST`: one reading of the code for every member, each member's verdict its own preflight's, one
+/// receipt listing them; the batch transform takes that receipt as each member's gate.
+#[test]
+fn a_batch_preflight_is_one_receipt_and_the_batch_transform_goes_on_it() {
+    let d = fixture("preflight-batch");
+    ok(&d, &["agent", "init", "--job-mode", "bounded"], 0);
+    let attr = |name: &str, target: &str| format!("name = \"{name}\"\nobjective = \"o\"\noperation = \"add_attribute\"\ntarget = \"{target}\"\nattribute = \"#[must_use]\"\n");
+    change_spec(&d, "token", &attr("token", "core_lib::token"));
+    change_spec(&d, "socket", &attr("socket", "core_lib::socket"));
+    change_spec(&d, "nowhere", &attr("nowhere", "core_lib::no_such_function"));
+    std::fs::write(d.join("batch.list"), "token\nsocket\nnowhere\n").unwrap();
+    // each member alone first: the verdicts the batch must give
+    let alone: Vec<i32> = ["token", "socket", "nowhere"].iter().map(|n| run(&d, &["preflight", n]).code).collect();
+    assert_eq!(alone, [0, 0, 1]);
+    let out = ok(&d, &["preflight", "--batch", "batch.list"], 1);
+    assert!(out.contains("authorized: **2 of 3**") && out.contains("| token | authorized |") && out.contains("| nowhere | not authorized |"), "{out}");
+    let line = out.lines().find(|l| l.contains("batch preflight record: ")).unwrap_or_else(|| panic!("{out}"));
+    let r = receipt(&d, line.rsplit_once("receipt #").unwrap().1.split(' ').next().unwrap().parse().unwrap());
+    assert_eq!((r["command"].as_str(), r["reason"].as_str()), (Some("preflight-batch"), Some("2 of 3 authorized")));
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("no code-passenger with the transform line: the transform half skipped");
+        return;
+    };
+    let b = Some(bin.as_path());
+    ok_with(&d, &["job", "start", "must-use", "--target", "core_lib::env_or", "--intent", "i", "--verify", "test:core_lib"], b, 0);
+    change_spec(&d, "env-or", &attr("env-or", "core_lib::env_or"));
+    ok_with(&d, &["preflight", "env-or"], b, 0);
+    let proof = seq_of(&ok_with(&d, &["transform", "env-or", "--write"], b, 0)).to_string();
+    // the code moved: the batch is preflighted again, then the transform goes on that one receipt
+    ok_with(&d, &["preflight", "--batch", "batch.list"], b, 1);
+    let batch = ok_with(&d, &["transform", "--batch", "batch.list", "--after-proof", &proof, "--write"], b, 0);
+    assert!(batch.contains(&format!("batch of 2 after proof #{proof}")) && batch.contains("left out: nowhere"), "{batch}");
+    let lib = std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap();
+    assert_eq!(lib.matches("#[must_use]").count(), 3, "{lib}");
+}
+
 #[test]
 fn a_bounded_job_with_a_hand_edit_is_refused_at_close_and_rejected() {
     let Some(bin) = passenger_with_transform() else {

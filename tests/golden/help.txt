@@ -7,7 +7,7 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian run [TARGET] [--kind KIND] [--job JOB] [--again]                One spec (a file, or a queued or done spec's name), a search on the line (`--kind` and a target), or every queued spec and job folder in order
   custodian list                                                            The inventory, rendered from the journal (rebuilt from the receipts a checkout carries)
   custodian diff SPEC [--from FROM] [--to TO]                               What moved between two readings of one spec (the last two by default)
-  custodian job start [NAME] [--kind KIND] [--target TARGET] [--intent INTENT] [--mode MODE] [--verify VERIFY]... [--again] [--baseline] [--allow-file ALLOW_FILE]...
+  custodian job start [NAME] [--kind KIND] [--target TARGET] [--intent INTENT] [--mode MODE] [--verify VERIFY]... [--again] [--baseline] [--allow-file ALLOW_FILE]... [--budget BUDGET]
                                                                             Opens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open
   custodian job close [NAME]                                                Closes the running job: its closing receipt, its task history's result (`accepted` only on evidence), its folder moved to done; a bounded job with lines no transform covers is refused, `rejected`
   custodian job brief [NAME] [--bundle]                                     The facts of a job: open decisions first, the result, the mode and when its target and outcome became known, the readings, the lines touched; `--bundle` packs a closed job as one file too
@@ -40,7 +40,7 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
                                                                             Uninstalls custodian from its install receipt
   custodian self status [--bin-dir BIN_DIR] [--state-dir STATE_DIR]         What is installed, from its receipt
   custodian mcp serve [--root ROOT]                                         An MCP server on stdin and stdout whose tools are these lines, each call run as the command line runs it
-  custodian preflight SPEC [--job JOB]                                      What a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written
+  custodian preflight SPEC [--batch] [--job JOB]                            What a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written
   custodian transform [SPEC] [--write] [--revert REVERT] [--batch BATCH] [--after-proof AFTER_PROOF] [--tests] [--preflight] [--job JOB]
                                                                             A change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on the workspace's proof place, written with `--write`, its record kept; or a record's files put back (`--revert`)
   custodian plan make INTENT [--name NAME] [--job JOB]                      An intent's plan: where the work is, what can be reused, what is new, the top candidates' impact and the cost, the decisions to make before any step, and the steps proposed; nothing written

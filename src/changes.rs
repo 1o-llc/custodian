@@ -57,6 +57,7 @@ pub fn spec_path(ctx: &Ctx, spec: &str) -> Result<PathBuf> {
 pub fn preflight(ctx: &mut Ctx, spec: &str, job: Option<String>) -> Result<Ran> {
     let path = spec_path(ctx, spec)?;
     let job = in_job(ctx, job)?;
+    crate::budget::before_step(ctx, job.as_ref().map(|j| j.id.as_str()), &format!("preflight {spec}"), custodian_kit::step_time::PREFLIGHT, 1)?;
     let k = crate::jobs::kit(ctx);
     let ran = {
         let ws = ctx.workspace(&impact_scope(), if job.is_some() { Resolving::Job } else { Resolving::Free })?;
@@ -72,6 +73,45 @@ pub fn preflight(ctx: &mut Ctx, spec: &str, job: Option<String>) -> Result<Ran> 
         out.code = 1;
     }
     Ok(out)
+}
+
+/// The names a batch list gives, one a line (blank lines and `#` lines left out); read where the line runs, else at
+/// the root.
+fn list_names(ctx: &Ctx, list: &str) -> Result<Vec<String>> {
+    let text = std::fs::read_to_string(std::env::current_dir().unwrap_or_default().join(list)).or_else(|_| std::fs::read_to_string(ctx.root().join(list))).map_err(|e| Code::NoChangeSpec.refuse(format!("{list}: {e}")))?;
+    Ok(text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')).map(str::to_string).collect())
+}
+
+/// `custodian preflight --batch LIST [--job ID]`: every change spec LIST names, preflighted as a batch by
+/// custodian_kit's `run_preflight_batch` over one open workspace: the code read once (one scan, one code digest, one
+/// code graph), each member checked by its own preflight's rules, each member's record kept, one receipt listing each
+/// member and its verdict. A name that is no change spec is said and left out.
+pub fn preflight_batch(ctx: &mut Ctx, list: &str, job: Option<String>) -> Result<Ran> {
+    let names = list_names(ctx, list)?;
+    let mut ran = Ran::named(list);
+    let mut paths = Vec::new();
+    for name in &names {
+        match spec_path(ctx, name) {
+            Ok(p) => paths.push(p),
+            Err(e) => ran.say(format!("left out: {name}: {e}")),
+        }
+    }
+    let job = in_job(ctx, job)?;
+    ran.job = job.as_ref().map(|j| j.id.clone());
+    crate::budget::before_step(ctx, ran.job.as_deref(), &format!("preflight --batch {list} ({} members)", paths.len()), custodian_kit::step_time::PREFLIGHT, paths.len())?;
+    let k = crate::jobs::kit(ctx);
+    let list_rel = ctx.rel(&std::env::current_dir().unwrap_or_default().join(list));
+    let b = {
+        let ws = ctx.workspace(&impact_scope(), if job.is_some() { Resolving::Job } else { Resolving::Free })?;
+        custodian_kit::preflight::run_preflight_batch(&k, &list_rel, &paths, job.as_ref(), ws)?
+    };
+    ran.print(b.batch.markdown());
+    ran.said.extend(b.said.clone());
+    ran.outputs = b.outputs.clone();
+    if b.batch.authorized < names.len() {
+        ran.code = 1;
+    }
+    Ok(ran)
 }
 
 /// `custodian transform SPEC [--write] [--job ID]`, `custodian transform --revert RECORD`: code_passenger's
@@ -94,6 +134,7 @@ pub fn transform_with(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: boo
     let (words, name, outputs): (Vec<String>, String, Vec<String>) = match (spec, revert) {
         (_, Some(r)) => (vec!["transform".into(), "--revert".into(), r.into()], format!("revert {r}"), Vec::new()),
         (Some(s), None) => {
+            crate::budget::before_step(ctx, job.as_deref(), &format!("transform {s}"), custodian_kit::step_time::TRANSFORM, 1)?;
             let path = spec_path(ctx, s)?;
             let change = custodian_kit::change::ChangeSpec::from_path(&path)?;
             let st = store(ctx)?;
@@ -158,38 +199,38 @@ pub fn transform_batch_with(ctx: &mut Ctx, list: &str, after_proof: Option<&str>
     }
     let root = ctx.root().to_path_buf();
     let job = ctx.current_job(job)?;
-    let text = std::fs::read_to_string(std::env::current_dir().unwrap_or_default().join(list)).or_else(|_| std::fs::read_to_string(root.join(list))).map_err(|e| Code::NoChangeSpec.refuse(format!("{list}: {e}")))?;
+    let names = list_names(ctx, list)?;
     let mut ran = Ran::named(list);
     ran.job = job.clone();
     if preflight_here {
+        // the batch preflight: one reading of the code for every member, one receipt listing each verdict
         let started = std::time::Instant::now();
-        let (mut yes, mut no) = (0usize, 0usize);
-        for name in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-            match preflight(ctx, name, job.clone()) {
-                Ok(p) if p.code == 0 => yes += 1,
-                Ok(_) => no += 1,
-                Err(e) => {
-                    no += 1;
-                    ran.say(format!("preflight {name}: {e}"));
-                }
-            }
+        let b = preflight_batch(ctx, list, job.clone())?;
+        for l in b.said.iter().filter(|l| l.starts_with("left out: ")) {
+            ran.say(format!("preflight {}", l.trim_start_matches("left out: ")));
         }
-        ran.say(format!("preflights: {} of {} authorized, over one open workspace ({} ms)", yes, yes + no, started.elapsed().as_millis()));
+        let yes = b.said.iter().find_map(|l| l.strip_prefix("preflights: ").and_then(|r| r.split(' ').next()).and_then(|n| n.parse::<usize>().ok())).unwrap_or(0);
+        ran.say(format!("preflights: {} of {} authorized, over one open workspace ({} ms)", yes, names.len(), started.elapsed().as_millis()));
+        ran.said.extend(b.said.into_iter().filter(|l| l.starts_with("batch preflight record: ")));
     }
     let st = store(ctx)?;
     let code = custodian_kit::code_digest(&root, &impact_scope().scan_options()).map_err(|e| Code::LineFailed.refuse(e))?;
     let mut members: Vec<(String, std::path::PathBuf, i64)> = Vec::new();
     let mut left: Vec<String> = Vec::new();
-    for name in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
-        let path = match spec_path(ctx, name) {
-            Ok(p) => p,
-            Err(e) => {
-                left.push(format!("{name}: {e}"));
-                continue;
+    let mut found: Vec<(std::path::PathBuf, custodian_kit::change::ChangeSpec)> = Vec::new();
+    for name in &names {
+        match spec_path(ctx, name) {
+            Ok(path) => {
+                let change = custodian_kit::change::ChangeSpec::from_path(&path)?;
+                found.push((path, change));
             }
-        };
-        let change = custodian_kit::change::ChangeSpec::from_path(&path)?;
-        match custodian_kit::preflight::gate(&st, &change, &code)? {
+            Err(e) => left.push(format!("{name}: {e}")),
+        }
+    }
+    // each member's gate: its own preflight receipt, or its line in a batch preflight's, the journal read once
+    let gates = custodian_kit::preflight::gate_all(&st, &found.iter().map(|(_, c)| c).collect::<Vec<_>>(), &code)?;
+    for ((path, change), gate) in found.into_iter().zip(gates) {
+        match gate {
             (d, Some(prev)) if d.go => members.push((change.name.clone(), path, prev.seq)),
             (d, _) => left.push(format!("{}: {}", change.name, d.reason)),
         }
@@ -204,6 +245,7 @@ pub fn transform_batch_with(ctx: &mut Ctx, list: &str, after_proof: Option<&str>
         ran.code = 1;
         return Ok(ran);
     }
+    crate::budget::before_step(ctx, job.as_deref(), &label, custodian_kit::step_time::COMPILE, 1)?;
     // the batch's folder: the list code_passenger reads (each spec with its preflight), the members' records
     let stamp = crate::journal::stamp();
     let dir = match job.as_deref().map(|j| crate::readings::job_folder(ctx, j)).transpose()?.flatten() {

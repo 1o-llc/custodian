@@ -109,6 +109,10 @@
           "description": "Run the tests the target reaches at open, and keep them as the job's baseline: a test failing the same way there is not the job's failure at close. (`--baseline`)",
           "type": "boolean"
         },
+        "budget": {
+          "description": "The job's budget, `hours=<n>,battery=<percent>`: a step whose measured time would take the job past its hours is refused before it starts; under the battery floor no cargo line starts. (`--budget`)",
+          "type": "string"
+        },
         "intent": {
           "description": "What the job is for, in the asker's words: its task history's intent record. (`--intent`)",
           "type": "string"
@@ -517,12 +521,16 @@
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "batch": {
+          "description": "The spec is a batch: every member preflighted over one reading of the code (one scan, one code digest), each member's preconditions checked as its own preflight checks them, one receipt listing each member and its verdict (the batch transform's gate). (`--batch`)",
+          "type": "boolean"
+        },
         "job": {
           "description": "The job it is part of (the running one by default). (`--job`)",
           "type": "string"
         },
         "spec": {
-          "description": "The change spec (`v1.<name>.1o.change`, or its TOML twin). (a word on the line)",
+          "description": "The change spec (`v1.<name>.1o.change`, or its TOML twin); with `--batch`, a file naming one change spec a line. (a word on the line)",
           "type": "string"
         }
       },

@@ -23,3 +23,4 @@ The verification test:config_names is satisfied.
 
 ## What runs next
 Nothing: the job is complete.
+Paid one member at a time: the index parsed 3 times (T s each): one run that holds the workspace open (a batch, or `custodian serve`) parses it once.

@@ -117,3 +117,22 @@ pub fn passenger_with_transform() -> Option<PathBuf> {
         bin.is_file() && Command::new(&bin).args(["transform"]).output().is_ok_and(|o| String::from_utf8_lossy(&o.stderr).contains("transform") && !String::from_utf8_lossy(&o.stderr).contains("is not a command"))
     })
 }
+
+/// `custodian <words>` in `dir` with these variables set.
+pub fn run_env(dir: &Path, words: &[&str], vars: &[(&str, &str)]) -> Ran {
+    let mut c = Command::new(BIN);
+    c.args(words).current_dir(dir).env_remove("XDG_RUNTIME_DIR");
+    for (k, v) in vars {
+        c.env(k, v);
+    }
+    let o: Output = c.output().unwrap();
+    Ran { code: o.status.code().unwrap_or(-1), out: String::from_utf8_lossy(&o.stdout).into_owned(), err: String::from_utf8_lossy(&o.stderr).into_owned() }
+}
+
+/// A fresh empty directory under the system temp directory.
+pub fn fresh(name: &str) -> PathBuf {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
+    let dir = std::env::temp_dir().join("custodian-it").join(format!("{name}-{}-{nanos}", std::process::id()));
+    std::fs::create_dir_all(&dir).unwrap();
+    dir.canonicalize().unwrap()
+}

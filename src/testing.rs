@@ -3,7 +3,10 @@
 //!
 //! The lines: `--affected` (the default) reads custodian_kit's `affected_tests` over the change since the ref (the
 //! running job's base commit, else HEAD; the files git does not track yet too) and takes the exact cargo test lines
-//! it names; `--all` takes one line per workspace package.
+//! it names; `--all` takes one line per workspace package. Every line runs on the workspace's one kept build
+//! (custodian_kit's `proof_place`: the copy and build folder the transform's proof uses), so a crate whose source did
+//! not move is not compiled again; "affected" is the proof's rule, the crates the change is in, their direct
+//! dependents, and the readers of a public signature it alters.
 //! Each line is built with xccute_commands' `CargoBuilder` and run through the executor with a receipt of its own;
 //! its output goes through the observer set (what is shown is the `--observe` level's), and its counts, its
 //! outcomes and its wall time go into the journal. `test report` reads them back: the slowest lines, the flakiest
@@ -96,6 +99,11 @@ pub fn lines(ctx: &mut Ctx, all: bool, git_ref: &str, job: Option<String>, ran: 
     }
     let mut spec = affected_spec(git_ref)?;
     spec.change.git_ref = None;
+    // the public items whose signature the change alters: their readers' tests run too (custodian_kit's rule)
+    spec.change.signatures = custodian_kit::testrun::signature_changes(&root, git_ref, &files);
+    if !spec.change.signatures.is_empty() {
+        ran.say(format!("public signatures the change alters: {}", spec.change.signatures.join(", ")));
+    }
     spec.change.files = files;
     let (r, report) = readings::read_spec(ctx, &spec, &readings::From::Line, &Ask { again: false, job, word: String::new() })?;
     ran.said.extend(r.said);
@@ -174,12 +182,20 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
         return Ok(ran);
     }
     let lines = configured(ctx, lines, l, &mut ran)?;
-    let root = ctx.root().to_path_buf();
+    crate::budget::before_step(ctx, job.as_deref(), &format!("{} test line(s)", lines.len()), custodian_kit::step_time::TEST, lines.len())?;
+    // the lines run on the workspace's one kept build: custodian_kit's proof place (the copy and the build the
+    // transform's proof uses), never a cold build in the workspace
+    let place = custodian_kit::proof_place::ProofPlace::take(ctx.root())?;
+    let root = place.root().to_path_buf();
+    ran.say(format!("on the kept build: {} (the proof's place, synced)", place.target().display()));
     let mut obs = Observers::new(level);
     let (mut total_pass, mut total_fail) = (0, 0);
     for line in &lines {
         let cmd = cargo_line(&root, line);
-        let ext = External::shell("cargo.test", &cmd).in_dir(&root);
+        let mut ext = External::shell("cargo.test", &cmd).in_dir(&root);
+        for (k, v) in place.env() {
+            ext = ext.env(&k, v);
+        }
         let mut results: Vec<(String, String)> = Vec::new();
         let names = ExternalNames { name: format!("{} {}", line.package, line.target), job: job.clone(), outputs: Vec::new() };
         // the live lines go where the run's own do; held aside while the line runs
