@@ -1,6 +1,6 @@
 [package]
 name = "custodian"
-version = "0.3.5"
+version = "0.3.6"
 edition = "2021"
 # ob-serve-a-bowl 0.2 needs 1.88; xccute 0.3.1 (the job lock is std File::try_lock) needs 1.89
 rust-version = "1.89"
@@ -23,7 +23,7 @@ path = "src/main.rs"
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 # 0.1.1: a job's close reads cargo's test outcomes (`FAILED`), the words custodian writes
-custodian_kit = { version = "0.3.7", path = "../custodian_kit" }
+custodian_kit = { version = "0.3.8", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
 task_history = "0.1.0"
 # the receipts journal custodian's tables sit beside; the counts over time and their tables; every kind of history

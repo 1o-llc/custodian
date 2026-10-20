@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.6 (2026-10-20)
+
+On custodian_kit 0.3.8 and code_passenger 0.4.6: James's rule for a repeated shape as a custodian line. Prove one
+member of a shape fully, then batch the rest of that shape in the crate under one compile, one receipt per member, a
+failing member excluded and named; it holds for every operation with repeated shapes, not only a swap. Nothing is
+removed from the API: the rustdoc JSON of 0.3.5 and 0.3.6 differ by 11 additions and no removal. Every link is pinned to
+3c23186; the lines it replaces to eb9c2eb (0.3.5).
+
+- **`custodian transform --batch LIST [--after-proof N] [--write] [--tests]`** (`changes::transform_batch`,
+  [changes.rs L148](https://github.com/1o-llc/custodian/blob/3c23186/src/changes.rs#L148)): each spec of LIST goes on its own preflight receipt over this code, a
+  spec with none left out and named; the rest are made by code_passenger's `transform --batch` under one compile;
+  then one `transform` receipt per member, named `<spec> (batch of N after proof #S #<the batch's receipt>)`, its
+  record its output ([changes.rs L221](https://github.com/1o-llc/custodian/blob/3c23186/src/changes.rs#L221)), so a bounded job's close covers each member's lines
+  as it covers a single transform's. 0.3.5 took one spec ([changes.rs L80 at 0.3.5](https://github.com/1o-llc/custodian/blob/eb9c2eb/src/changes.rs#L80)).
+  Proof: tests/modes.rs `a_batch_of_one_shape_goes_under_one_proof_with_a_receipt_per_member_and_closes_accepted`
+  ([L169](https://github.com/1o-llc/custodian/blob/3c23186/tests/modes.rs#L169)): one attribute made alone, two more as a batch after it, a spec with no preflight
+  left out, a receipt per member, the job closed accepted.
+- **`--tests`** on a transform (`changes::transform_with`; `transform` keeps its signature): the crate's tests run on the proof against the same tests before the change
+  (code_passenger 0.4.6), for a change no job's test line covers. The MCP tool `transform` takes `batch`,
+  `after_proof` and `tests` (tests/golden/mcp_tools.json).
+
+`cargo test --all-features` passes.
+
 ## 0.3.5 (2026-10-20)
 
 On custodian_kit 0.3.7: the command line's half of three findings custodian's exercise made with 0.3.4. Nothing is
