@@ -1000,7 +1000,10 @@ leaf! {
 
 leaf! {
     /// A change spec made in the code by code_passenger, on the preflight receipt of this spec over this code:
-    /// proved on a scratch copy, written with `--write`, its record kept; or a record's files put back (`--revert`).
+    /// proved on the workspace's proof place, written with `--write`, its record kept; or a record's files put back
+    /// (`--revert`). `--batch LIST`: James's rule for a repeated shape: one member proved alone first (its receipt is
+    /// `--after-proof N`), then the rest as one batch (LIST: one spec a line, each on its own preflight) under one
+    /// compile, one record and one receipt per member, a member that cannot go with the rest left out and named.
     #[allow(clippy::duplicated_attributes)]
     #[derive(SimpleSubCommand, Debug, Clone, Default)]
     #[subcommand(segment = "transform")]
@@ -1020,6 +1023,17 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--revert", each = nonempty)]
         pub revert: Option<OsString>,
+        /// A batch: a file naming one change spec a line.
+        #[builder(into)]
+        #[arg(kv = "--batch", each = nonempty)]
+        pub batch: Option<OsString>,
+        /// The receipt of the one member of the batch's shape made alone and proved first.
+        #[builder(into)]
+        #[arg(kv = "--after-proof", each = plain)]
+        pub after_proof: Option<OsString>,
+        /// The crate's tests run on the proof, compared with the same tests before the change.
+        #[arg(flag = "--tests")]
+        pub tests: bool,
         /// The job it is part of (the running one by default).
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
@@ -1399,10 +1413,11 @@ word_sets! {
 }
 
 fn transform_valid(line: &Transform) -> CommandValidationResult {
-    match (&line.spec, &line.revert) {
-        (Some(_), Some(_)) => refuse("revert", "a spec or --revert RECORD, not both".into()),
-        (None, None) => refuse("spec", "transform SPEC [--write], or transform --revert RECORD".into()),
-        (None, Some(_)) if line.write => refuse("write", "--revert writes; --write is a spec's".into()),
+    match (&line.spec, &line.revert, &line.batch) {
+        (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (_, Some(_), Some(_)) => refuse("revert", "one of a spec, --batch LIST and --revert RECORD".into()),
+        (None, None, None) => refuse("spec", "transform SPEC [--write], transform --batch LIST [--write], or transform --revert RECORD".into()),
+        (None, Some(_), None) if line.write || line.tests => refuse("write", "--revert writes; --write and --tests are a spec's".into()),
+        (_, _, None) if line.after_proof.is_some() => refuse("after_proof", "--after-proof goes with --batch".into()),
         _ => Ok(()),
     }
 }
@@ -1832,7 +1847,7 @@ fn read_preflight(w: &mut Words) -> Result<Preflight> {
 }
 
 fn read_transform(w: &mut Words) -> Result<Transform> {
-    Ok(Transform { write: w.flag("--write"), revert: kv(w, "--revert")?, job: kv(w, "--job")?, spec: pos(w) })
+    Ok(Transform { write: w.flag("--write"), tests: w.flag("--tests"), revert: kv(w, "--revert")?, batch: kv(w, "--batch")?, after_proof: kv(w, "--after-proof")?, job: kv(w, "--job")?, spec: pos(w) })
 }
 
 fn read_plan_make(w: &mut Words) -> Result<PlanMake> {

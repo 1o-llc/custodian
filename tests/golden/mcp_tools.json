@@ -534,10 +534,18 @@
   },
   {
     "name": "transform",
-    "description": "Runs `custodian transform`, a declared line; every run leaves a receipt. The only way a bounded job's code is written.\n\nA change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on a scratch copy, written with `--write`, its record kept; or a record's files put back (`--revert`).",
+    "description": "Runs `custodian transform`, a declared line; every run leaves a receipt. The only way a bounded job's code is written.\n\nA change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on the workspace's proof place, written with `--write`, its record kept; or a record's files put back (`--revert`). `--batch LIST`: James's rule for a repeated shape: one member proved alone first (its receipt is `--after-proof N`), then the rest as one batch (LIST: one spec a line, each on its own preflight) under one compile, one record and one receipt per member, a member that cannot go with the rest left out and named.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
+        "after_proof": {
+          "description": "The receipt of the one member of the batch's shape made alone and proved first. (`--after-proof`)",
+          "type": "string"
+        },
+        "batch": {
+          "description": "A batch: a file naming one change spec a line. (`--batch`)",
+          "type": "string"
+        },
         "job": {
           "description": "The job it is part of (the running one by default). (`--job`)",
           "type": "string"
@@ -549,6 +557,10 @@
         "spec": {
           "description": "The change spec. (a word on the line)",
           "type": "string"
+        },
+        "tests": {
+          "description": "The crate's tests run on the proof, compared with the same tests before the change. (`--tests`)",
+          "type": "boolean"
         },
         "write": {
           "description": "Write it (else prove it on a scratch copy only). (`--write`)",

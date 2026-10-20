@@ -77,7 +77,7 @@ pub fn preflight(ctx: &mut Ctx, spec: &str, job: Option<String>) -> Result<Ran> 
 /// `custodian transform SPEC [--write] [--job ID]`, `custodian transform --revert RECORD`: code_passenger's
 /// `transform` line, through the executor with its receipt (`transform`, the kit's word, so the job's close reads it),
 /// on the preflight receipt of this spec over this code.
-pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, revert: Option<&str>, job: Option<String>) -> Result<Ran> {
+pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: bool, revert: Option<&str>, job: Option<String>) -> Result<Ran> {
     if !crate::maint::passenger_installed() {
         return Err(Code::ProgramMissing.refuse("code-passenger is the writer: cargo install code_passenger"));
     }
@@ -106,6 +106,9 @@ pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, revert: Option<
             if write {
                 w.push("--write".into());
             }
+            if tests {
+                w.push("--tests".into());
+            }
             if let Some(p) = prev {
                 w.push("--preflight".into());
                 w.push(p.seq.to_string());
@@ -126,6 +129,104 @@ pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, revert: Option<
     ran.code = match run.code {
         Some(0) => 0,
         Some(2) => return Err(Code::StepFailed.refuse(run.stderr.lines().find(|l| l.starts_with('[')).unwrap_or("code-passenger refused the spec").to_string())),
+        _ => 1,
+    };
+    Ok(ran)
+}
+
+/// `custodian transform --batch LIST [--after-proof N] [--write] [--tests] [--job ID]`: James's rule for a repeated
+/// shape. Each spec of LIST (one a line: a file, or a spec's name) goes on its own preflight receipt over this code (a
+/// spec with none, or not authorized, is left out and named); the rest are made by code_passenger's `transform
+/// --batch` as one batch (one compile, one expansion per crate, one record per member); then one `transform` receipt
+/// per member, its record its output, so the job's close covers each member's lines as it covers a single transform's.
+pub fn transform_batch(ctx: &mut Ctx, list: &str, after_proof: Option<&str>, write: bool, tests: bool, job: Option<String>) -> Result<Ran> {
+    if !crate::maint::passenger_installed() {
+        return Err(Code::ProgramMissing.refuse("code-passenger is the writer: cargo install code_passenger"));
+    }
+    let root = ctx.root().to_path_buf();
+    let job = ctx.current_job(job)?;
+    let text = std::fs::read_to_string(std::env::current_dir().unwrap_or_default().join(list)).or_else(|_| std::fs::read_to_string(root.join(list))).map_err(|e| Code::NoChangeSpec.refuse(format!("{list}: {e}")))?;
+    let st = store(ctx)?;
+    let code = custodian_kit::code_digest(&root, &impact_scope().scan_options()).map_err(|e| Code::LineFailed.refuse(e))?;
+    let mut ran = Ran::named(list);
+    ran.job = job.clone();
+    let mut members: Vec<(String, std::path::PathBuf, i64)> = Vec::new();
+    let mut left: Vec<String> = Vec::new();
+    for name in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+        let path = match spec_path(ctx, name) {
+            Ok(p) => p,
+            Err(e) => {
+                left.push(format!("{name}: {e}"));
+                continue;
+            }
+        };
+        let change = custodian_kit::change::ChangeSpec::from_path(&path)?;
+        match custodian_kit::preflight::gate(&st, &change, &code)? {
+            (d, Some(prev)) if d.go => members.push((change.name.clone(), path, prev.seq)),
+            (d, _) => left.push(format!("{}: {}", change.name, d.reason)),
+        }
+    }
+    let after = after_proof.map(|a| a.trim_start_matches('#').to_string());
+    let label = format!("batch of {}{}", members.len(), after.as_deref().map(|a| format!(" after proof #{a}")).unwrap_or_default());
+    ran.say(format!("{label}: {} on their preflights, {} left out", members.len(), left.len()));
+    for l in &left {
+        ran.say(format!("left out: {l}"));
+    }
+    if members.is_empty() {
+        ran.code = 1;
+        return Ok(ran);
+    }
+    // the batch's folder: the list code_passenger reads (each spec with its preflight), the members' records
+    let stamp = crate::journal::stamp();
+    let dir = match job.as_deref().map(|j| crate::readings::job_folder(ctx, j)).transpose()?.flatten() {
+        Some(folder) => folder.join(custodian_kit::jobs::JOB_DATA).join("transforms").join(format!("batch-{stamp}")),
+        None => st.path(&custodian_kit::store::named::TRANSFORM, &[("name", "batch"), ("stamp", &stamp)])?.with_extension(""),
+    };
+    std::fs::create_dir_all(&dir).map_err(|e| Code::LineFailed.refuse(format!("{}: {e}", dir.display())))?;
+    let list_file = dir.join("list");
+    let lines: String = members.iter().map(|(_, p, seq)| format!("{} {seq}\n", p.display())).collect();
+    std::fs::write(&list_file, lines).map_err(|e| Code::LineFailed.refuse(format!("{}: {e}", list_file.display())))?;
+    let mut w: Vec<String> = vec!["transform".into(), "--batch".into(), list_file.display().to_string(), "--out".into(), dir.display().to_string()];
+    if let Some(a) = &after {
+        w.push("--after-proof".into());
+        w.push(a.clone());
+    }
+    if write {
+        w.push("--write".into());
+    }
+    if tests {
+        w.push("--tests".into());
+    }
+    let line = crate::maint::passenger(&root, w.iter().map(String::as_str));
+    let ext = crate::facade::External::of("code-passenger.transform-batch", &line)?.in_dir(&root).env("CODE_PASSENGER_JOB", job.clone().unwrap_or_else(|| "custodian".into()));
+    let run = crate::facade::run_external(ctx, ext, crate::facade::ExternalNames { name: label.clone(), job: job.clone(), outputs: vec![ctx.rel(&list_file)] }, |_| {})?;
+    ran.print(run.stdout.clone());
+    ran.say(format!("{} → {:?} ({}) #{}", run.receipt.line, run.code, run.receipt.reason, run.receipt.seq));
+    if !run.stderr.trim().is_empty() {
+        ran.say(run.stderr.lines().filter(|l| !l.starts_with("code-passenger:")).collect::<Vec<_>>().join("\n"));
+    }
+    // one transform receipt per member, its record its output: the job's close covers each member's lines
+    let mut outputs = vec![ctx.rel(&list_file)];
+    for (name, _, _) in &members {
+        let file = dir.join(format!("{name}.json"));
+        let Some(rec) = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<custodian_kit::transform::TransformRecord>(&t).ok()) else { continue };
+        let mut r = run.receipt.clone();
+        r.seq = 0;
+        r.command = "transform".into();
+        r.name = format!("{name} ({label} #{})", run.receipt.seq);
+        r.outputs = vec![ctx.rel(&file)];
+        r.accepted = rec.written && rec.proved() || (!write && rec.proved());
+        r.reason = if r.accepted { "done".into() } else { "not proved: left out of the batch".into() };
+        r.receipt_digest = custodian_kit::digest::of_value(&(&run.receipt.receipt_digest, name, &rec.files));
+        if let Some(f) = ctx.keep(&mut r)? {
+            ran.say(format!("{name}: receipt #{} ({})", r.seq, f.display()));
+        }
+        outputs.push(ctx.rel(&file));
+    }
+    ran.outputs = outputs;
+    ran.code = match run.code {
+        Some(0) => 0,
+        Some(2) => return Err(Code::StepFailed.refuse(run.stderr.lines().find(|l| l.starts_with('[')).unwrap_or("code-passenger refused the batch").to_string())),
         _ => 1,
     };
     Ok(ran)

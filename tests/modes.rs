@@ -162,6 +162,49 @@ fn a_bounded_job_writes_its_code_through_a_change_spec_and_closes_accepted() {
     assert!(closed.contains("result: accepted"), "{closed}");
 }
 
+/// James's rule for a repeated shape: one member made alone and proved, the rest as one batch on their own
+/// preflights: one compile, one transform receipt per member (its record its output), and the job's close covers each
+/// member's lines as a single transform's.
+#[test]
+fn a_batch_of_one_shape_goes_under_one_proof_with_a_receipt_per_member_and_closes_accepted() {
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("no code-passenger with the transform line: skipped");
+        return;
+    };
+    let b = Some(bin.as_path());
+    let d = fixture("bounded-batch");
+    ok_with(&d, &["agent", "init", "--job-mode", "bounded"], b, 0);
+    ok_with(&d, &["job", "start", "must-use", "--target", "core_lib::env_or", "--intent", "every reader of the environment says its value is used", "--verify", "test:core_lib"], b, 0);
+    let attr = |name: &str, target: &str| format!("name = \"{name}\"\nobjective = \"o\"\noperation = \"add_attribute\"\ntarget = \"{target}\"\nattribute = \"#[must_use]\"\n");
+    // the one member of the shape alone, fully proved
+    change_spec(&d, "env-or", &attr("env-or", "core_lib::env_or"));
+    ok_with(&d, &["preflight", "env-or"], b, 0);
+    let first = ok_with(&d, &["transform", "env-or", "--write"], b, 0);
+    let proof = seq_of(&first);
+    // the rest as one batch; a spec with no preflight is left out and named
+    change_spec(&d, "token", &attr("token", "core_lib::token"));
+    change_spec(&d, "socket", &attr("socket", "core_lib::socket"));
+    change_spec(&d, "unread", &attr("unread", "core_lib::parse_mode"));
+    ok_with(&d, &["preflight", "token"], b, 0);
+    ok_with(&d, &["preflight", "socket"], b, 0);
+    std::fs::write(d.join("batch.list"), "token\nsocket\nunread\n").unwrap();
+    let p = proof.to_string();
+    let batch = ok_with(&d, &["transform", "--batch", "batch.list", "--after-proof", &p, "--write"], b, 0);
+    assert!(batch.contains(&format!("batch of 2 after proof #{p}")) && batch.contains("left out: unread"), "{batch}");
+    let lib = std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap();
+    assert_eq!(lib.matches("#[must_use]").count(), 3, "{lib}");
+    // a transform receipt per member, each its record
+    let receipts: Vec<serde_json::Value> = std::fs::read_dir(d.join(".custodian/data/receipts")).unwrap().map(|e| serde_json::from_str(&std::fs::read_to_string(e.unwrap().path()).unwrap()).unwrap()).collect();
+    for name in ["token", "socket"] {
+        let r = receipts.iter().find(|r| r["command"] == "transform" && r["name"].as_str().is_some_and(|n| n.starts_with(&format!("{name} (batch of 2 after proof #{p}")))).unwrap_or_else(|| panic!("no receipt for {name}"));
+        assert_eq!(r["accepted"], true);
+        assert!(r["outputs"][0].as_str().unwrap().ends_with(&format!("{name}.json")));
+    }
+    ok_with(&d, &["test", "run", "--all"], b, 0);
+    let closed = ok_with(&d, &["job", "close"], b, 0);
+    assert!(closed.contains("result: accepted"), "{closed}");
+}
+
 #[test]
 fn a_bounded_job_with_a_hand_edit_is_refused_at_close_and_rejected() {
     let Some(bin) = passenger_with_transform() else {
