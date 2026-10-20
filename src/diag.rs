@@ -51,7 +51,7 @@ pub fn diagnostics(ctx: &mut Ctx, action: &str, arg: Option<&str>) -> Result<Ran
 
 /// `custodian triage CODE|@LOGFILE`: custodian_kit's triage template, started and closed as one job; its brief printed.
 pub fn triage(ctx: &mut Ctx, target: &str) -> Result<Ran> {
-    ctx.mode.need_project()?.need_agent()?;
+    ctx.mode.need_agent_project()?;
     let target = if target.starts_with('@') || Path::new(target).is_file() { log_target(ctx, target)? } else { target.to_string() };
     let (started, closing, file, said) = custodian_kit::jobs::run_template(&crate::jobs::kit(ctx), "triage", &target, false)?;
     let mut ran = Ran::named(&started.id);

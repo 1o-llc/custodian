@@ -19,7 +19,6 @@
 use crate::codes::{Code, Result};
 use crate::decide;
 use crate::facade::{Ctx, Ran};
-use crate::journal::stamp;
 use crate::layout::{write_whole, Layout};
 use crate::runtime::Limit;
 use custodian_kit::jobs::JobFile;
@@ -150,7 +149,7 @@ pub fn start(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
 }
 
 fn start_held(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
-    ctx.mode.need_project()?.need_agent()?;
+    ctx.mode.need_agent_project()?;
     if let Some(resumed) = crate::runtime::resume(ctx, ask.limit)? {
         return Ok(resumed);
     }
@@ -159,8 +158,7 @@ fn start_held(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
 
 /// [`start`] without looking for a job to resume first (the queue's runner calls it).
 pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
-    let project = ctx.mode.need_project()?.clone();
-    project.need_agent()?;
+    let project = ctx.mode.need_agent_project()?.clone();
     let layout = project.layout.clone();
     let d = decide::job_running(&running_ids(&layout)?);
     if !d.go {
@@ -175,7 +173,8 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     let folder = match folder {
         Some(f) => f,
         None => {
-            let name = ask.which.clone().unwrap_or_else(|| format!("job-{}", stamp()));
+            // a new job is named by the one who opens it: nothing queued and no name is a question, never a job named by the time
+            let name = ask.which.clone().ok_or_else(|| Code::JobNeedsName.refuse("nothing is queued in state/jobs/queued, and a new job is named by the one who opens it: custodian job start NAME"))?;
             let f = layout.job_dir("queued", &crate::readings::slug(&name))?;
             std::fs::create_dir_all(&f).map_err(|e| Code::Write.refuse(format!("{}: {e}", f.display())))?;
             write_job_file(&f, &JobFile { name: Some(name.clone()), kind: Some("specs".into()), ..JobFile::default() })?;
@@ -368,7 +367,7 @@ pub fn allow(ctx: &mut Ctx, which: Option<&str>, glob: &str) -> Result<Ran> {
 /// bundle's digest as its origin.
 pub fn import(ctx: &mut Ctx, bundle: &Path, limit: Limit) -> Result<Ran> {
     let layout = ctx.layout()?.clone();
-    ctx.mode.need_project()?.need_agent()?;
+    ctx.mode.need_agent_project()?;
     let stem = bundle.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "imported".into());
     let mut name = format!("{}-imported", crate::readings::slug(&stem));
     let mut n = 2;

@@ -181,7 +181,7 @@ fn run(ctx: &mut Ctx, l: &surface::Run) -> Result<Ran> {
 }
 
 fn need_agent(ctx: &Ctx) -> Result<()> {
-    ctx.mode.need_project()?.need_agent()
+    ctx.mode.need_agent_project().map(|_| ())
 }
 
 fn job_start(ctx: &mut Ctx, l: &surface::JobStart) -> Result<Ran> {

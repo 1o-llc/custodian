@@ -34,7 +34,8 @@ pub fn handoff(ctx: &mut Ctx, job: Option<&str>, reader: Option<&str>, since: Op
     let mut waiting = 0;
     for f in &folders {
         let h = custodian_kit::handoff::of_job(ctx.root(), &store, f, &receipts, since)?;
-        waiting += h.decisions_open.len() + h.refused.len() + h.verify.iter().filter(|(_, s)| s != "satisfied").count() + usize::from(h.close_refusal.is_some()) + h.uncovered.len();
+        // a spec whose preflight found it in the code already waits on no one (custodian_kit's `Handoff::waiting`)
+        waiting += h.waiting();
         ran.say(format!("handoff of job {} ({}): made from its records in {}", h.name, h.id, h.folder));
         texts.push(custodian_kit::handoff::render(&h, reader));
     }

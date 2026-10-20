@@ -114,6 +114,33 @@ fn a_handoff_says_what_waits_on_a_person_first_and_the_agent_gets_the_lines() {
     assert!(after.out.contains(&format!("- {id}: what does done look like for socket? → test:core_lib. Why: its tests are the proof. By: the record names no one.")), "{}", after.out);
 }
 
+/// A spec whose preflight found what it asks for in the code already (an item its feature gates, gated again) is told
+/// with what changed, as done: nothing waits on a person, and the handoff exits 0.
+#[test]
+fn a_spec_already_in_place_is_told_as_done_and_waits_on_no_one() {
+    let d = fixture("handoff-in-place");
+    ok(&d, &["agent", "init"], 0);
+    let manifest = d.join("crates/core_lib/Cargo.toml");
+    std::fs::write(&manifest, std::fs::read_to_string(&manifest).unwrap() + "\n[features]\njson = []\n").unwrap();
+    let lib = d.join("crates/core_lib/src/lib.rs");
+    std::fs::write(&lib, std::fs::read_to_string(&lib).unwrap() + "\n#[cfg(feature = \"json\")]\npub fn to_json() -> u8 {\n    1\n}\n").unwrap();
+    let started = ok(&d, &["job", "start", "gates", "--intent", "to_json only with json", "--verify", "test:config_names"], 0);
+    let id = job_id(&started);
+    let changes = d.join(".custodian/data/specs/changes");
+    std::fs::create_dir_all(&changes).unwrap();
+    std::fs::write(changes.join("gate-json.toml"), "name = \"gate-json\"\nobjective = \"to_json only with json\"\noperation = \"gate\"\ntarget = \"core_lib::to_json\"\nfeature = \"json\"\n").unwrap();
+    let r = run(&d, &["preflight", ".custodian/data/specs/changes/gate-json.toml"]);
+    assert_eq!(r.code, 1, "{}", r.all());
+    assert!(r.all().contains("preflight gate-json: not authorized — already in place: its cfg already needs json: nothing to gate"), "{}", r.all());
+    ok(&d, &["test", "run", "--all", "--job", &id], 0);
+    ok(&d, &["job", "close", &id], 0);
+    let r = run(&d, &["handoff", "gates"]);
+    assert_eq!(r.code, 0, "nothing waits on a person: {}", r.all());
+    assert!(r.out.contains("## Waiting on a person\nNothing is waiting on a person.\n"), "{}", r.out);
+    assert!(r.out.contains("1 change spec was in the code already, so its preflight refused it with nothing to do:\n- gate-json: its cfg already needs json: nothing to gate (receipt #"), "{}", r.out);
+    assert!(!r.out.contains("Fix the change spec gate-json"), "{}", r.out);
+}
+
 #[test]
 fn why_says_who_introduced_a_route_and_for_what_from_the_records_and_git() {
     let d = fixture("why");

@@ -9,7 +9,7 @@ Nothing is waiting on a person.
 say where the metrics are served.
 
 ## What changed
-4 lines added and 0 removed, across 1 file in 1 crate.
+4 lines added and 0 removed, across 1 file in 1 crate (the job's counts at open and close).
 - core_lib: +4 −0 in 1 file
 No change spec was written through a transform.
 

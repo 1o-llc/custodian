@@ -113,6 +113,28 @@ fn a_refused_line_says_its_code_and_is_kept() {
     assert!(r.out.contains("[CUST1201]"), "{}", r.all());
 }
 
+/// A folder with no `.custodian` is told the one line that makes it an agent's (`custodian agent init` makes the
+/// folder too), never `custodian init` first and then that; a bare `job start` with nothing queued asks for the job's
+/// name and opens nothing.
+#[test]
+fn a_folder_with_no_custodian_is_told_agent_init_and_a_new_job_needs_its_name() {
+    let d = fixture("no-folder");
+    for words in [&["exercise", "run", "--ops", "make_lib"][..], &["job", "list"][..]] {
+        let r = run(&d, words);
+        assert_eq!(r.code, 2, "{}", r.all());
+        assert!(r.all().contains("[CUST1003] jobs are agent mode: custodian agent init: ") && r.all().contains("has no .custodian folder; run exactly `custodian agent init` here: it makes the folder an agent's"), "{}", r.all());
+        assert!(!r.all().contains("CUST1002"), "one refusal, the one line: {}", r.all());
+    }
+    ok(&d, &["agent", "init"], 0);
+    let r = run(&d, &["job", "start"]);
+    assert_eq!(r.code, 2, "{}", r.all());
+    assert!(r.all().contains("[CUST1408] a new job needs its name: nothing is queued in state/jobs/queued, and a new job is named by the one who opens it: custodian job start NAME"), "{}", r.all());
+    for state in ["queued", "running", "done"] {
+        let dir = d.join(".custodian/state/jobs").join(state);
+        assert_eq!(std::fs::read_dir(&dir).map(|r| r.count()).unwrap_or(0), 0, "no job was opened: {}", dir.display());
+    }
+}
+
 #[test]
 fn a_folder_of_specs_is_a_job_from_start_to_close() {
     let d = fixture("job");

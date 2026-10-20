@@ -38,6 +38,7 @@ liaise_proc_macro::liaise_codes! {
         StepFailed = 1405 => "a job step's line did not run to an accepted status",
         JobLockHeld = 1406 => "another run holds the project's job lock (a job's start, its close or the queue)",
         BoundedEdit = 1407 => "a bounded job is open: its code is written through change specs (custodian preflight, custodian transform), never by hand",
+        JobNeedsName = 1408 => "a new job needs its name",
 
         // 15xx: the socket
         Socket = 1501 => "the serve socket cannot be bound or reached",

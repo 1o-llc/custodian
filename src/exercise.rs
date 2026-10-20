@@ -13,7 +13,7 @@ use std::path::PathBuf;
 /// `custodian exercise run ...`: the exercise job from queue to close; the summary printed; 1 when it found
 /// anything.
 pub fn run(ctx: &mut Ctx, l: &ExerciseRun) -> Result<Ran> {
-    ctx.mode.need_project()?.need_agent()?;
+    ctx.mode.need_agent_project()?;
     let intents = so(&l.intents).map(PathBuf::from);
     let options = custodian_kit::exercise::Options::from_words(so(&l.ops).as_deref(), so(&l.units).as_deref(), so(&l.n).as_deref(), l.tests, so(&l.krate).as_deref(), intents.as_deref(), so(&l.seed).as_deref())?;
     let (started, closing, done, said) = custodian_kit::exercise::run_job(&crate::jobs::kit(ctx), &options)?;
@@ -39,7 +39,7 @@ pub fn run(ctx: &mut Ctx, l: &ExerciseRun) -> Result<Ran> {
 
 /// `custodian exercise report [JOB]`: an exercise job's summary (the newest when none is named).
 pub fn report(ctx: &mut Ctx, job: Option<&str>) -> Result<Ran> {
-    ctx.mode.need_project()?.need_agent()?;
+    ctx.mode.need_agent_project()?;
     let (s, folder) = custodian_kit::exercise::report(&crate::jobs::kit(ctx), job)?;
     let mut ran = Ran::named(&s.job);
     ran.job = Some(s.job.clone());

@@ -100,6 +100,15 @@ impl Mode {
     pub fn need_project(&self) -> Result<&Project> {
         self.project().ok_or_else(|| Code::NeedsFolder.refuse(format!("{} has none", self.root().display())))
     }
+
+    /// An agent's project, or the one refusal that names the one line making it: `custodian agent init` makes the
+    /// folder and makes it an agent's, so a folder with no `.custodian` is told that line, not `custodian init` first.
+    pub fn need_agent_project(&self) -> Result<&Project> {
+        match self.project() {
+            Some(p) => p.need_agent().map(|_| p),
+            None => Err(Code::NeedsAgent.refuse(format!("{} has no .custodian folder; run exactly `custodian agent init` here: it makes the folder an agent's", self.root().display()))),
+        }
+    }
 }
 
 /// The workspace a directory is in: the nearest ancestor whose Cargo.toml declares `[workspace]`, else the nearest
