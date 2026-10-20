@@ -15,7 +15,7 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian job list                                                        Every job folder by state, each with its task state (proposed, ready, running, blocked, paused, verifying, completed, failed)
   custodian job verify LINE [--job JOB]                                     Declares what done looks like for the running job; the closing receipt records when the outcome became known
   custodian job allow GLOB [--job JOB]                                      Lets the running job touch a file no operation writes (a test's expected output, a fixture): a glob added to its job file's `allow_file`, with a receipt; the closing receipt names each such file
-  custodian test run [--affected] [--all] [--observe OBSERVE] [--ref GIT_REF] [--job JOB]
+  custodian test run [--affected] [--all] [--observe OBSERVE] [--ref GIT_REF] [--job JOB] [--features FEATURES] [--all-features] [--matrix]
                                                                             The tests the change since `--ref` reaches (or every test line), each cargo line with its receipt and times
   custodian test report                                                     The last runs' outcomes: the slowest lines, the flakiest tests, maintenance's timed report; nothing run
   custodian check WHICH [--job JOB]                                         A maintenance check, through maintenance's own line, its JSON kept

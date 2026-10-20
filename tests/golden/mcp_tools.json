@@ -226,6 +226,14 @@
           "description": "Every test line. (`--all`)",
           "type": "boolean"
         },
+        "all_features": {
+          "description": "Each line with every feature on. (`--all-features`)",
+          "type": "boolean"
+        },
+        "features": {
+          "description": "Each line with these features on (comma-separated), as cargo's `--features`. (`--features`)",
+          "type": "string"
+        },
         "git_ref": {
           "description": "The git ref the change is measured from. (`--ref`)",
           "type": "string"
@@ -233,6 +241,10 @@
         "job": {
           "description": "The job the run is part of. (`--job`)",
           "type": "string"
+        },
+        "matrix": {
+          "description": "Each line once per configuration of its crate's check matrix (the transform's N of N: each feature set, with and without the defaults). (`--matrix`)",
+          "type": "boolean"
         },
         "observe": {
           "description": "What the run shows while it runs. (`--observe`)",
@@ -607,7 +619,9 @@
             "replace_body",
             "change_dependency",
             "inline",
-            "wrap"
+            "wrap",
+            "make_lib",
+            "declare_feature"
           ],
           "type": "string"
         },
