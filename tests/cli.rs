@@ -104,8 +104,11 @@ fn a_refused_line_says_its_code_and_is_kept() {
     ok(&d, &["init"], 0);
     let r = run(&d, &["job", "list"]);
     assert_eq!(r.code, 2, "{}", r.all());
-    assert!(r.out.contains("[CUST1003] jobs are agent mode: custodian agent init"), "{}", r.all());
+    assert!(r.out.contains("[CUST1003] jobs are agent mode: custodian agent init: .custodian was made by `custodian init`, a person's folder; run exactly `custodian agent init` here to make it an agent's"), "{}", r.all());
     assert!(r.out.contains("→ 2 (refused"), "the refusal has its receipt: {}", r.out);
+    // and that line is the way on: the folder becomes an agent's, and jobs are taken
+    ok(&d, &["agent", "init"], 0);
+    ok(&d, &["job", "list"], 0);
     let r = run(&d, &["run", "nothing-here"]);
     assert!(r.out.contains("[CUST1201]"), "{}", r.all());
 }

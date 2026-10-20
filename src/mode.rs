@@ -49,7 +49,7 @@ impl Project {
         if self.agent() {
             Ok(())
         } else {
-            Err(Code::NeedsAgent.refuse(self.layout.rel(&self.layout.folder())))
+            Err(Code::NeedsAgent.refuse(format!("{} was made by `custodian init`, a person's folder; run exactly `custodian agent init` here to make it an agent's", self.layout.rel(&self.layout.folder()))))
         }
     }
 }
