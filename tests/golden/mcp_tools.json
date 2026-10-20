@@ -600,7 +600,9 @@
             "gate",
             "anchor",
             "replace_body",
-            "change_dependency"
+            "change_dependency",
+            "inline",
+            "wrap"
           ],
           "type": "string"
         },
