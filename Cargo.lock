@@ -666,6 +666,7 @@ dependencies = [
  "liaise",
  "maintenance",
  "pathgen",
+ "proc-macro2",
  "quote",
  "receipt_history",
  "revision_history",
