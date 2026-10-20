@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.3.4 (2026-10-20)
+
+On custodian_kit 0.3.6: the operations and the reading a program built through change specs asked for
+(`declare_feature`, `make_lib`, `optional`, a body with `change_signature`, a module made by `add_test`, the
+`patterns` reading), and two of its findings that are the command line's own. Nothing is removed from the API: the
+rustdoc JSON of 0.3.3 and 0.3.4 differ by 10 additions and no removal. Every link is pinned to 838a701.
+
+- **Features in a test run** (the pantry's tenth finding: `test run` tested the default features only, so the
+  `json` and `chrono` configurations were run by hand). `custodian test run --features F` runs each line whose crate
+  declares the features with them on, and the others as they are (cargo refuses a feature a package does not
+  have); `--all-features` every feature; `--matrix` each line once per configuration of its crate's check matrix,
+  the transform's N of N: [surface.rs L580-L597](https://github.com/1o-llc/custodian/blob/838a701/src/surface.rs#L580-L597), [testing.rs L126-L155](https://github.com/1o-llc/custodian/blob/838a701/src/testing.rs#L126-L155). The configuration is
+  carried in the line's target word (`core_lib all [no-default-features, features json]`,
+  custodian_kit's `testrun::Configuration`), so the cargo line is built from it ([testing.rs L37-L40](https://github.com/1o-llc/custodian/blob/838a701/src/testing.rs#L37-L40)), its
+  outcomes are told apart from the default's, and a job's close reruns it the same way.
+- **init, then a job** (the twelfth): `custodian init` makes a person's folder, and `job start` there was refused
+  with "jobs are agent mode: custodian agent init: .custodian". The detail now says what happened and the exact line
+  on: ".custodian was made by `custodian init`, a person's folder; run exactly `custodian agent init` here to make it
+  an agent's" ([mode.rs L52](https://github.com/1o-llc/custodian/blob/838a701/src/mode.rs#L52)).
+- The help and the tool list carry `test run`'s three new words, and `make_lib` and `declare_feature` among the
+  operations (tests/golden/help.txt, tests/golden/mcp_tools.json); the `patterns` kind and `inline`, `wrap` came
+  with the `patterns` branch.
+
+Proof: tests/features.rs `a_test_run_takes_features_all_features_and_the_matrix` ([L19](https://github.com/1o-llc/custodian/blob/838a701/tests/features.rs#L19)): a
+fixture whose `core_lib` declares `json` and holds a test that exists only with it; `--features json` runs
+`core_lib` with it and `app` as it is; `--matrix` runs `core_lib` twice and the json line passes one test more;
+`--features` with `--matrix` is refused. tests/cli.rs `a_refused_line_says_its_code_and_is_kept`
+([L99](https://github.com/1o-llc/custodian/blob/838a701/tests/cli.rs#L99)): the refusal's text, then `agent init` and `job list` succeed. `cargo test
+--all-features` and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## 0.3.3 (2026-10-20)
 
 Three lines that only read the records, on custodian_kit 0.3.5: `handoff`,
