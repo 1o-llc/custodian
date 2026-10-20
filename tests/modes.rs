@@ -205,6 +205,35 @@ fn a_batch_of_one_shape_goes_under_one_proof_with_a_receipt_per_member_and_close
     assert!(closed.contains("result: accepted"), "{closed}");
 }
 
+/// `--preflight`: the batch preflights its members itself, in one run over one open workspace, each with its own
+/// preflight receipt; a member the preflight refuses is left out and named.
+#[test]
+fn a_batch_preflights_its_members_in_one_run() {
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("no code-passenger with the transform line: skipped");
+        return;
+    };
+    let b = Some(bin.as_path());
+    let d = fixture("bounded-batch-preflight");
+    ok_with(&d, &["agent", "init", "--job-mode", "bounded"], b, 0);
+    ok_with(&d, &["job", "start", "must-use", "--target", "core_lib::env_or", "--intent", "i", "--verify", "test:core_lib"], b, 0);
+    let attr = |name: &str, target: &str| format!("name = \"{name}\"\nobjective = \"o\"\noperation = \"add_attribute\"\ntarget = \"{target}\"\nattribute = \"#[must_use]\"\n");
+    change_spec(&d, "env-or", &attr("env-or", "core_lib::env_or"));
+    ok_with(&d, &["preflight", "env-or"], b, 0);
+    let proof = seq_of(&ok_with(&d, &["transform", "env-or", "--write"], b, 0)).to_string();
+    change_spec(&d, "token", &attr("token", "core_lib::token"));
+    change_spec(&d, "socket", &attr("socket", "core_lib::socket"));
+    change_spec(&d, "nowhere", &attr("nowhere", "core_lib::no_such_function"));
+    std::fs::write(d.join("batch.list"), "token\nsocket\nnowhere\n").unwrap();
+    let batch = ok_with(&d, &["transform", "--batch", "batch.list", "--preflight", "--after-proof", &proof, "--write"], b, 0);
+    assert!(batch.contains("preflights: 2 of 3 authorized, over one open workspace"), "{batch}");
+    assert!(batch.contains(&format!("batch of 2 after proof #{proof}")) && batch.contains("left out: nowhere"), "{batch}");
+    let lib = std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap();
+    assert_eq!(lib.matches("#[must_use]").count(), 3, "{lib}");
+    ok_with(&d, &["test", "run", "--all"], b, 0);
+    assert!(ok_with(&d, &["job", "close"], b, 0).contains("result: accepted"));
+}
+
 #[test]
 fn a_bounded_job_with_a_hand_edit_is_refused_at_close_and_rejected() {
     let Some(bin) = passenger_with_transform() else {

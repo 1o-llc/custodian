@@ -1034,6 +1034,10 @@ leaf! {
         /// The crate's tests run on the proof, compared with the same tests before the change.
         #[arg(flag = "--tests")]
         pub tests: bool,
+        /// With `--batch`: each member preflighted here first, in this one run over one open workspace (one index
+        /// parse for the batch), each with its own preflight receipt.
+        #[arg(flag = "--preflight")]
+        pub preflight: bool,
         /// The job it is part of (the running one by default).
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
@@ -1417,7 +1421,7 @@ fn transform_valid(line: &Transform) -> CommandValidationResult {
         (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (_, Some(_), Some(_)) => refuse("revert", "one of a spec, --batch LIST and --revert RECORD".into()),
         (None, None, None) => refuse("spec", "transform SPEC [--write], transform --batch LIST [--write], or transform --revert RECORD".into()),
         (None, Some(_), None) if line.write || line.tests => refuse("write", "--revert writes; --write and --tests are a spec's".into()),
-        (_, _, None) if line.after_proof.is_some() => refuse("after_proof", "--after-proof goes with --batch".into()),
+        (_, _, None) if line.after_proof.is_some() || line.preflight => refuse("after_proof", "--after-proof and --preflight go with --batch".into()),
         _ => Ok(()),
     }
 }
@@ -1847,7 +1851,7 @@ fn read_preflight(w: &mut Words) -> Result<Preflight> {
 }
 
 fn read_transform(w: &mut Words) -> Result<Transform> {
-    Ok(Transform { write: w.flag("--write"), tests: w.flag("--tests"), revert: kv(w, "--revert")?, batch: kv(w, "--batch")?, after_proof: kv(w, "--after-proof")?, job: kv(w, "--job")?, spec: pos(w) })
+    Ok(Transform { write: w.flag("--write"), tests: w.flag("--tests"), preflight: w.flag("--preflight"), revert: kv(w, "--revert")?, batch: kv(w, "--batch")?, after_proof: kv(w, "--after-proof")?, job: kv(w, "--job")?, spec: pos(w) })
 }
 
 fn read_plan_make(w: &mut Words) -> Result<PlanMake> {

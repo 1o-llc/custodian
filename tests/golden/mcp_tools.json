@@ -550,6 +550,10 @@
           "description": "The job it is part of (the running one by default). (`--job`)",
           "type": "string"
         },
+        "preflight": {
+          "description": "With `--batch`: each member preflighted here first, in this one run over one open workspace (one index parse for the batch), each with its own preflight receipt. (`--preflight`)",
+          "type": "boolean"
+        },
         "revert": {
           "description": "A transform record whose files are put back. (`--revert`)",
           "type": "string"

@@ -146,16 +146,38 @@ pub fn transform_with(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: boo
 /// --batch` as one batch (one compile, one expansion per crate, one record per member); then one `transform` receipt
 /// per member, its record its output, so the job's close covers each member's lines as it covers a single transform's.
 pub fn transform_batch(ctx: &mut Ctx, list: &str, after_proof: Option<&str>, write: bool, tests: bool, job: Option<String>) -> Result<Ran> {
+    transform_batch_with(ctx, list, after_proof, write, tests, false, job)
+}
+
+/// `transform --batch` with `--preflight`: each member preflighted first in this run, over the one workspace the
+/// run holds open (`Ctx::workspace` reuses it while the code does not move), each with its own preflight receipt, so
+/// a batch of hundreds parses the index once, not once per member.
+pub fn transform_batch_with(ctx: &mut Ctx, list: &str, after_proof: Option<&str>, write: bool, tests: bool, preflight_here: bool, job: Option<String>) -> Result<Ran> {
     if !crate::maint::passenger_installed() {
         return Err(Code::ProgramMissing.refuse("code-passenger is the writer: cargo install code_passenger"));
     }
     let root = ctx.root().to_path_buf();
     let job = ctx.current_job(job)?;
     let text = std::fs::read_to_string(std::env::current_dir().unwrap_or_default().join(list)).or_else(|_| std::fs::read_to_string(root.join(list))).map_err(|e| Code::NoChangeSpec.refuse(format!("{list}: {e}")))?;
-    let st = store(ctx)?;
-    let code = custodian_kit::code_digest(&root, &impact_scope().scan_options()).map_err(|e| Code::LineFailed.refuse(e))?;
     let mut ran = Ran::named(list);
     ran.job = job.clone();
+    if preflight_here {
+        let started = std::time::Instant::now();
+        let (mut yes, mut no) = (0usize, 0usize);
+        for name in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {
+            match preflight(ctx, name, job.clone()) {
+                Ok(p) if p.code == 0 => yes += 1,
+                Ok(_) => no += 1,
+                Err(e) => {
+                    no += 1;
+                    ran.say(format!("preflight {name}: {e}"));
+                }
+            }
+        }
+        ran.say(format!("preflights: {} of {} authorized, over one open workspace ({} ms)", yes, yes + no, started.elapsed().as_millis()));
+    }
+    let st = store(ctx)?;
+    let code = custodian_kit::code_digest(&root, &impact_scope().scan_options()).map_err(|e| Code::LineFailed.refuse(e))?;
     let mut members: Vec<(String, std::path::PathBuf, i64)> = Vec::new();
     let mut left: Vec<String> = Vec::new();
     for name in text.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with('#')) {

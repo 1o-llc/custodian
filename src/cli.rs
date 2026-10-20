@@ -118,7 +118,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::SelfStatus(l) => crate::install::self_line(ctx, &SelfAsk { action: "status", bin_dir: so(&l.bin_dir), state_dir: so(&l.state_dir), ..SelfAsk::default() }),
         Line::McpServe(_) => Err(Code::McpForeground.refuse("custodian mcp serve")),
         Line::Preflight(l) => crate::changes::preflight(ctx, &s(&l.spec), so(&l.job)),
-        Line::Transform(l) if l.batch.is_some() => crate::changes::transform_batch(ctx, &s(l.batch.as_ref().unwrap_or(&OsString::new())), so(&l.after_proof).as_deref(), l.write, l.tests, so(&l.job)),
+        Line::Transform(l) if l.batch.is_some() => crate::changes::transform_batch_with(ctx, &s(l.batch.as_ref().unwrap_or(&OsString::new())), so(&l.after_proof).as_deref(), l.write, l.tests, l.preflight, so(&l.job)),
         Line::Transform(l) => crate::changes::transform_with(ctx, so(&l.spec).as_deref(), l.write, l.tests, so(&l.revert).as_deref(), so(&l.job)),
         Line::PlanMake(l) => crate::changes::plan_in(ctx, &s(&l.intent), so(&l.name), so(&l.job)),
         Line::PlanApprove(l) => crate::changes::approve_in(ctx, &s(&l.plan), &s(&l.step), so(&l.operation).as_deref(), so(&l.job)),
