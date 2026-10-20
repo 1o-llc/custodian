@@ -78,7 +78,7 @@ fn a_decision_is_asked_once_and_its_answer_declares_what_done_looks_like() {
     let brief = ok(&d, &["agent", "brief"], 0);
     assert!(!brief.contains("what does done look like for socket?"), "answered, not asked again: {brief}");
     let closed = ok(&d, &["job", "close"], 0);
-    assert!(closed.contains("outcome known: #"), "the outcome became known when the decision was made: {closed}");
+    assert!(closed.contains("outcome_known: false at open, known at #"), "the outcome became known when the decision was made: {closed}");
 }
 
 #[test]

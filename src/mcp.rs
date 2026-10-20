@@ -299,9 +299,15 @@ impl Called {
         if !inline {
             said.push(format!("the reading is {} bytes, over the {} inline: {}", self.markdown.len(), INLINE_CAP, self.page.as_deref().unwrap_or("(not kept: free mode)")));
         }
+        // the status is the line's word; where the index came from rides after it in the receipt's reason
+        let (status, index) = match o.receipt.reason.split_once(" · index ") {
+            Some((w, i)) => (w.to_string(), Some(i.to_string())),
+            None => (o.receipt.reason.clone(), None),
+        };
         let value = json!({
             "code": o.code,
-            "status": o.receipt.reason,
+            "status": status,
+            "index": index,
             "receipt": o.receipt,
             "receipt_file": o.receipt_file,
             "reading": self.page.as_ref().map(|p| json!({

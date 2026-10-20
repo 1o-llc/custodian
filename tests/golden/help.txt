@@ -7,13 +7,14 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian run [TARGET] [--kind KIND] [--job JOB] [--again]                One spec (a file, or a queued or done spec's name), a search on the line (`--kind` and a target), or every queued spec and job folder in order
   custodian list                                                            The inventory, rendered from the journal (rebuilt from the receipts a checkout carries)
   custodian diff SPEC [--from FROM] [--to TO]                               What moved between two readings of one spec (the last two by default)
-  custodian job start [NAME] [--kind KIND] [--target TARGET] [--intent INTENT] [--mode MODE] [--verify VERIFY]... [--again]
+  custodian job start [NAME] [--kind KIND] [--target TARGET] [--intent INTENT] [--mode MODE] [--verify VERIFY]... [--again] [--baseline] [--allow-file ALLOW_FILE]...
                                                                             Opens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open
   custodian job close [NAME]                                                Closes the running job: its closing receipt, its task history's result (`accepted` only on evidence), its folder moved to done; a bounded job with lines no transform covers is refused, `rejected`
   custodian job brief [NAME] [--bundle]                                     The facts of a job: open decisions first, the result, the mode and when its target and outcome became known, the readings, the lines touched; `--bundle` packs a closed job as one file too
   custodian job import BUNDLE                                               A bundled job unbundled into the queue and started under a new id, its origin the bundle's digest
   custodian job list                                                        Every job folder by state, each with its task state (proposed, ready, running, blocked, paused, verifying, completed, failed)
   custodian job verify LINE [--job JOB]                                     Declares what done looks like for the running job; the closing receipt records when the outcome became known
+  custodian job allow GLOB [--job JOB]                                      Lets the running job touch a file no operation writes (a test's expected output, a fixture): a glob added to its job file's `allow_file`, with a receipt; the closing receipt names each such file
   custodian test run [--affected] [--all] [--observe OBSERVE] [--ref GIT_REF] [--job JOB]
                                                                             The tests the change since `--ref` reaches (or every test line), each cargo line with its receipt and times
   custodian test report                                                     The last runs' outcomes: the slowest lines, the flakiest tests, maintenance's timed report; nothing run
