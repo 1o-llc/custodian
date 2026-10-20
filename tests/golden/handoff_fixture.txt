@@ -1,6 +1,6 @@
 # handoff: batch (job-ID)
 
-The job batch ran unbounded from DATE HH:MMZ to HH:MMZ, 13 runs. It closed accepted.
+The job batch ran unbounded from DATE HH:MMZ to HH:MMZ, N runs. It closed accepted.
 
 ## Waiting on a person
 Nothing is waiting on a person.

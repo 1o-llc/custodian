@@ -14,8 +14,17 @@ mod common;
 use common::*;
 use std::path::Path;
 
-/// The parts of a run that change from run to run, as words: a job's id, a time, a date.
+/// The parts of a run that change from run to run, as words: a job's id, a time, a date, and how many runs the job
+/// made (code-passenger's checkpoints at open and close are runs only where it is on PATH).
 fn steady(text: &str) -> String {
+    let counted = match text.split_once(" runs. ") {
+        Some((head, tail)) => match head.rsplit_once(", ") {
+            Some((h, n)) if n.chars().all(|c| c.is_ascii_digit()) => format!("{h}, N runs. {tail}"),
+            _ => text.to_string(),
+        },
+        None => text.to_string(),
+    };
+    let text: &str = &counted;
     let mut out = String::new();
     let mut rest = text;
     while let Some(i) = rest.find("job-") {
