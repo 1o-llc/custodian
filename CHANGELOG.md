@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.3.5 (2026-10-20)
+
+On custodian_kit 0.3.7: the command line's half of three findings custodian's exercise made with 0.3.4. Nothing is
+removed from the API: the rustdoc JSON of 0.3.4 and 0.3.5 differ by 2 additions and no removal. Every link is pinned
+to 9f8859d; the lines it replaces to 11db2de (0.3.4).
+
+- **One refusal, the one line.** `exercise run` in a folder with no `.custodian` named `custodian init` (CUST1002),
+  and after it, CUST1003 asked for `custodian agent init`. `custodian agent init` makes the folder and makes it an
+  agent's, so a line that needs an agent's folder now says only that, when there is no folder too:
+  `Mode::need_agent_project` ([mode.rs L106](https://github.com/1o-llc/custodian/blob/9f8859d/src/mode.rs#L106)), used by every such line, where 0.3.4 asked for any folder
+  first ([mode.rs L101 at 0.3.4](https://github.com/1o-llc/custodian/blob/11db2de/src/mode.rs#L101)). Proof: tests/cli.rs
+  `a_folder_with_no_custodian_is_told_agent_init_and_a_new_job_needs_its_name` ([L120](https://github.com/1o-llc/custodian/blob/9f8859d/tests/cli.rs#L120)).
+- **A new job needs its name.** A bare `custodian job start` with nothing queued opened an unbounded job named by
+  the time ([jobs.rs L178 at 0.3.4](https://github.com/1o-llc/custodian/blob/11db2de/src/jobs.rs#L178)). It is now refused, CUST1408, and asks for the name; nothing is
+  opened ([jobs.rs L177](https://github.com/1o-llc/custodian/blob/9f8859d/src/jobs.rs#L177), [codes.rs L41](https://github.com/1o-llc/custodian/blob/9f8859d/src/codes.rs#L41)). A queued folder is still started by a bare `job start`,
+  the queue's own way. Proof: the same test.
+- **A spec already in place waits on no one.** The handoff exited 1 for the pantry's four gate specs, each refused
+  because its item was gated already ([records.rs L37 at 0.3.4](https://github.com/1o-llc/custodian/blob/11db2de/src/records.rs#L37)). It counts what waits by
+  custodian_kit's `Handoff::waiting` now ([records.rs L38](https://github.com/1o-llc/custodian/blob/9f8859d/src/records.rs#L38)), so such a spec is told as done and the
+  handoff exits 0. Proof: tests/records.rs `a_spec_already_in_place_is_told_as_done_and_waits_on_no_one`
+  ([L120](https://github.com/1o-llc/custodian/blob/9f8859d/tests/records.rs#L120)): an item gated by `json` gated again in a job; the preflight's top line is
+  "already in place", the handoff says nothing waits and exits 0. The handoff's pinned golden says where its line
+  count comes from (tests/golden/handoff_fixture.txt).
+
+`cargo test --all-features` and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## 0.3.4 (2026-10-20)
 
 On custodian_kit 0.3.6: the operations and the reading a program built through change specs asked for
