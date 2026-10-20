@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.3.2"
+version = "0.3.3"
 dependencies = [
  "abut",
  "big-bad-bool",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.3.4"
+version = "0.3.5"
 dependencies = [
  "big-bad-bool",
  "bundles",
