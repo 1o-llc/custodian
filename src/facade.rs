@@ -56,6 +56,9 @@ pub struct Ran {
     /// A line that did its work and is still refused (a bounded job closed with lines no transform covers): the
     /// code it is refused with, its output kept.
     pub refusal: Option<Refusal>,
+    /// Where the parsed index the run read came from (`parsed (31204 ms)`, `from cache (812 ms)`, `from daemon`): its
+    /// receipt's reason says it.
+    pub index: Option<String>,
 }
 
 impl Ran {
@@ -136,6 +139,8 @@ pub struct Ctx {
     pub in_resident: bool,
     /// What opening the journal put back from the receipts and job folders (nothing, when it held them all).
     pub rebuilt: crate::journal::Rebuilt,
+    /// Where the last workspace this run asked for came from: parsed, read from the cache, or held by the resident.
+    pub index: Option<custodian_kit::reading::facts::IndexSource>,
 }
 
 impl Ctx {
@@ -155,7 +160,7 @@ impl Ctx {
             Mode::Free { .. } => None,
         };
         let exe = std::env::current_exe().unwrap_or_else(|_| PathBuf::from("custodian"));
-        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")), in_resident: false, rebuilt })
+        Ok(Ctx { mode, journal, exe, held: Vec::new(), live: Box::new(|l| println!("{l}")), in_resident: false, rebuilt, index: None })
     }
 
     pub fn root(&self) -> &Path {
@@ -197,8 +202,9 @@ impl Ctx {
         let job = how == Resolving::Job;
         let key = IndexKey::of_root(&root, scope)?;
         let at = self.held.iter().position(|h| h.root == root && &h.scope == scope && h.job == job);
+        let reused = at.is_some_and(|i| self.held[i].key == key);
         match at {
-            Some(i) if self.held[i].key == key => {}
+            Some(_) if reused => {}
             Some(i) => {
                 let ws = Workspace::open_with(&root, scope, how)?;
                 self.held[i] = HeldWorkspace { root, scope: scope.clone(), job, key, ws };
@@ -209,6 +215,8 @@ impl Ctx {
             }
         }
         let i = self.held.iter().position(|h| h.root == self.root() && &h.scope == scope && h.job == job).unwrap_or(0);
+        // a workspace the resident held from a run before this one is the daemon's index
+        self.index = Some(if reused && self.in_resident { custodian_kit::reading::facts::IndexSource::FromDaemon } else { self.held[i].ws.facts().index.clone() });
         Ok(&self.held[i].ws)
     }
 
@@ -276,6 +284,9 @@ pub fn execute(ctx: &mut Ctx, line: &Line, handler: impl FnOnce(&mut Ctx, &Line)
     receipt.command = command_word(line.segment(), &ran).to_string();
     if let Some(r) = &refusal {
         receipt.reason = format!("{} {r}", receipt.reason);
+    }
+    if let Some(i) = &ran.index {
+        receipt.reason = format!("{} · index {i}", receipt.reason);
     }
     let mut said = ran.said.clone();
     if let Some(r) = &refusal {

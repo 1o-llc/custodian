@@ -12,7 +12,8 @@ fn free_mode_prints_the_answer_and_stores_nothing() {
     let d = fixture("free");
     let out = ok(&d, &["run", "crate:core_lib", "--kind", "reach"], 0);
     assert!(out.contains("## binaries"), "{out}");
-    assert!(out.contains("free mode (no .custodian here or above): nothing stored · custodian run crate:core_lib --kind reach → 0 (done)"), "{out}");
+    // the reason says where the index came from: parsed, in free mode (nothing is kept)
+    assert!(out.contains("free mode (no .custodian here or above): nothing stored · custodian run crate:core_lib --kind reach → 0 (done · index parsed ("), "{out}");
     assert!(!d.join(".custodian").exists());
 }
 
@@ -546,7 +547,7 @@ fn an_exercise_runs_on_copies_and_its_report_reads_back() {
     let d = fixture("exercise");
     ok(&d, &["agent", "init"], 0);
     // the options are a word: a word that is not an operation is refused before anything runs
-    let bad = run(&d, &["exercise", "--ops", "add_field,inline"]);
+    let bad = run(&d, &["exercise", "--ops", "add_field,unroll"]);
     assert_eq!(bad.code, 2, "{}", bad.all());
     if !passenger_here() {
         return;

@@ -1,7 +1,8 @@
 //! `custodian test [--affected | --all] [--observe failed|progress|all] [--ref REF]` and `custodian test report`.
 //!
-//! The lines: `--affected` (the default) reads custodian_kit's `affected_tests` over the change since the ref
-//! (HEAD by default) and takes the exact cargo test lines it names; `--all` takes one line per workspace package.
+//! The lines: `--affected` (the default) reads custodian_kit's `affected_tests` over the change since the ref (the
+//! running job's base commit, else HEAD; the files git does not track yet too) and takes the exact cargo test lines
+//! it names; `--all` takes one line per workspace package.
 //! Each line is built with xccute_commands' `CargoBuilder` and run through the executor with a receipt of its own;
 //! its output goes through the observer set (what is shown is the `--observe` level's), and its counts, its
 //! outcomes and its wall time go into the journal. `test report` reads them back: the slowest lines, the flakiest
@@ -75,8 +76,13 @@ pub fn lines(ctx: &mut Ctx, all: bool, git_ref: &str, job: Option<String>, ran: 
     if !diff.accepted {
         return Err(facade::not_accepted(&diff));
     }
-    // custodian's own folder is not the code
-    let files: Vec<String> = diff.stdout.lines().map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(&format!("{}/", crate::layout::FOLDER))).map(str::to_owned).collect();
+    // and the files git does not track yet (a new module's file, a new fixture): `git ls-files --others --exclude-standard`
+    let new = External::of("git.diff", &custodian_kit::exec::Git::in_dir(root.as_os_str()).words(["ls-files", "--others", "--exclude-standard"]))?;
+    let new = facade::run_external(ctx, new, ExternalNames { name: "untracked".into(), job: job.clone(), outputs: Vec::new() }, |_| {})?;
+    // custodian's own folder is not the code; every other file is, Rust or not (a manifest, a test's expected output)
+    let mut files: Vec<String> = diff.stdout.lines().chain(new.stdout.lines()).map(str::trim).filter(|l| !l.is_empty() && !l.starts_with(&format!("{}/", crate::layout::FOLDER)) && !l.starts_with(".passenger/")).map(str::to_owned).collect();
+    files.sort();
+    files.dedup();
     ran.say(format!("the change since {git_ref}: {} file(s) ({} #{})", files.len(), diff.receipt.line, diff.receipt.seq));
     if files.is_empty() {
         return Ok(Vec::new());
@@ -114,7 +120,12 @@ pub fn outcome_of(line: &str) -> Option<(String, String)> {
 pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
     let level = ObserveLevel::of_word(&so(&l.observe).unwrap_or_else(|| "failed".into()))?;
     let job = ctx.current_job(so(&l.job))?;
-    let git_ref = so(&l.git_ref).unwrap_or_else(|| "HEAD".into());
+    // the change is measured from the job's base (the commit it opened at), else from HEAD
+    let base = match &job {
+        Some(j) => crate::readings::job_folder(ctx, j)?.and_then(|d| custodian_kit::jobs::job_file(&d).base_commit),
+        None => None,
+    };
+    let git_ref = so(&l.git_ref).or(base).unwrap_or_else(|| "HEAD".into());
     let mut ran = Ran::named(if l.all { "test --all" } else { "test --affected" });
     ran.job = job.clone();
     let lines = lines(ctx, l.all, &git_ref, job.clone(), &mut ran)?;

@@ -59,7 +59,9 @@ Built and tested in this version:
 - `custodian test`: the tests a change reaches (or every package), each cargo line with its receipt and times
 - the maintenance loop: `check` through maintenance's own lines, `annotate` as a plan, `features` as
   code_passenger's gating spec
-- a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs
+- a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs; with none, the
+  parsed index kept once per code digest under `.custodian/state/index/` and read back by the next run (each
+  receipt's reason says `index parsed`, `index from cache` or `index from daemon`, with its milliseconds)
 - `self install` through the installation crate, and a pre-edit hook script (not enabled)
 - bounded and unbounded jobs (below), the `impact` reading (one target's uses, constructions, matches, impls,
   dependents, reach, tests, features and the cost of changing it, each dimension measured, heuristic or unknown),
@@ -114,6 +116,14 @@ like for <job>?" (`custodian decide` lists it; answering it with a verify line d
 `accepted` only when every verify line was satisfied by the job's own runs; with none it writes `pending`, with the
 reason, never `accepted`.
 
+A job opens at a commit (its base). A test that fails the same way at the base is not the job's failure: at close
+each failing test is run again and looked up at the base (in the baseline `job start --baseline` ran at open, else on
+a worktree of the base commit), and one with the same first failing line there is named `pre-existing` in the
+closing receipt, with that line; the job can be `accepted`. The closing receipt lists every file the job touched
+since its base, and a bounded job's file that no operation writes (a test's expected output) needs a person's
+`custodian job allow GLOB`, else the close is refused (`[CUST0041]`). `test run` measures the change from the
+running job's base, new files included.
+
 Decisions are task-history records: a question asked is a `problem`, its answer a `solution` with the reason
 (`custodian decide ID ANSWER --why TEXT`). A question answered anywhere in the project is never asked again. The
 task states (proposed, ready, running, blocked, paused, verifying, completed, failed) are derived from the
@@ -156,7 +166,7 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `list` | the inventory: specs, the latest reading of each, jobs, test lines, installs, the folder's parts |
 | `diff SPEC [--from N] [--to N]` | what moved between two readings of one spec |
 | `agent brief [--head]`, `agent guard FILE` | the handoff an agent reads first; whether a file may be edited by hand now (the hook's question) |
-| `job start [NAME] [--kind K] [--target T] [--intent TEXT] [--mode bounded\|unbounded] [--verify LINE]... [--again]`, `job close\|brief\|import\|list\|verify` | jobs as folders, run by custodian_kit; the closing receipt (every reading, reuse, test and check run while the job was open) and the task history; the brief (lines touched, revision), with `--bundle` the job packed as one file too; a bundled job imported under a new id |
+| `job start [NAME] [--kind K] [--target T] [--intent TEXT] [--mode bounded\|unbounded] [--verify LINE]... [--again] [--baseline] [--allow-file GLOB]...`, `job close\|brief\|import\|list\|verify\|allow` | jobs as folders, run by custodian_kit; the closing receipt (every reading, reuse, test and check run while the job was open) and the task history; the brief (lines touched, revision), with `--bundle` the job packed as one file too; a bundled job imported under a new id |
 | `count of [ROUTE] [--by crate\|language] [--tests]`, `count report A B`, `count history [ROUTE]` | a count as a reading; two counts compared (by receipt number, job, `job:open`/`job:close`, commit or date); every count of a route |
 | `test run\|report [--affected\|--all] [--observe failed\|progress\|all] [--ref REF]` | the affected tests (or all), a receipt per cargo line; `report`: slowest lines, flakiest tests, maintenance's timed report |
 | `check sensitivity\|mechanism\|boundary\|supersedes\|reads_env\|golden\|all` | maintenance's check line with `--registry`, its JSON kept; the line writes `.maintenance/registry.json`, the one registry the readings carry |
@@ -256,7 +266,7 @@ by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a searc
 `test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
 `diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
 `count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add`,
-`linkage_check` and `exercise_report`. `init`, `agent init`, `agent guard`, `job import`, `sweep`, `serve`, `stop`,
+`linkage_check` and `exercise_report`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,
 `watch`, `self *`, `mcp serve` and `exercise run` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
 declared one or the other in `src/mcp.rs`.
 

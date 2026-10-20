@@ -112,6 +112,10 @@ pub struct StartAsk {
     pub mode: Option<String>,
     /// What done looks like, declared at open.
     pub verify: Vec<String>,
+    /// Run the tests the target reaches at open, as the job's baseline.
+    pub baseline: bool,
+    /// Files the job may touch that no operation writes, as globs.
+    pub allow_file: Vec<String>,
 }
 
 /// The passenger checkpoints a job took, kept in its folder: `{ "open": id, "close": id }`.
@@ -199,6 +203,14 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     for v in &ask.verify {
         if !jf.verify.contains(v) {
             jf.verify.push(v.clone());
+        }
+    }
+    if ask.baseline {
+        jf.baseline = Some(true);
+    }
+    for g in &ask.allow_file {
+        if !jf.allow_file.contains(g) {
+            jf.allow_file.push(g.clone());
         }
     }
     write_job_file(&folder, &jf)?;
@@ -339,6 +351,16 @@ pub fn verify(ctx: &mut Ctx, which: Option<&str>, line: &str) -> Result<Ran> {
     let mut ran = Ran::named(&id);
     ran.job = Some(id.clone());
     ran.say(format!("job {id}: done is {line} (verify receipt #{}); its close is accepted only when its runs satisfy it", r.seq));
+    Ok(ran)
+}
+
+/// `custodian job allow GLOB [--job ID]`: a file the running job may touch that no operation writes (custodian_kit's
+/// `jobs::declare_allow`, with its `allow` receipt).
+pub fn allow(ctx: &mut Ctx, which: Option<&str>, glob: &str) -> Result<Ran> {
+    let (id, r) = custodian_kit::jobs::declare_allow(&kit(ctx), which, glob)?;
+    let mut ran = Ran::named(&id);
+    ran.job = Some(id.clone());
+    ran.say(format!("job {id}: may touch {glob} by hand (allow receipt #{}); its close names each such file", r.seq));
     Ok(ran)
 }
 

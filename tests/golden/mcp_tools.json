@@ -96,12 +96,16 @@
   },
   {
     "name": "job_start",
-    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt.\n\nOpens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open.",
+    "description": "Runs `custodian job start`, a declared line; every run leaves a receipt. A file no operation writes is allowed by a person (`job allow`), not here.\n\nOpens a job: a queued folder (by name or id), else a new one for an agentic task; its mode, target and verification recorded at open.",
     "inputSchema": {
       "additionalProperties": false,
       "properties": {
         "again": {
           "description": "Read every step again. (`--again`)",
+          "type": "boolean"
+        },
+        "baseline": {
+          "description": "Run the tests the target reaches at open, and keep them as the job's baseline: a test failing the same way there is not the job's failure at close. (`--baseline`)",
           "type": "boolean"
         },
         "intent": {
@@ -600,7 +604,9 @@
             "gate",
             "anchor",
             "replace_body",
-            "change_dependency"
+            "change_dependency",
+            "inline",
+            "wrap"
           ],
           "type": "string"
         },

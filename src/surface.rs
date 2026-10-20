@@ -186,7 +186,7 @@ pub struct Custodian;
 #[composite(command = "guard", ty = AgentGuard, init = "file")]
 pub struct Agent;
 
-/// `custodian job start|close|brief|import|list|verify`.
+/// `custodian job start|close|brief|import|list|verify|allow`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
 #[subcommand(segment = "job")]
 #[composite(command = "start", ty = JobStart)]
@@ -195,6 +195,7 @@ pub struct Agent;
 #[composite(command = "import", ty = JobImport, init = "bundle")]
 #[composite(command = "list", ty = JobList)]
 #[composite(command = "verify", ty = JobVerify, init = "line")]
+#[composite(command = "allow", ty = JobAllow, init = "glob")]
 pub struct Job;
 
 /// `custodian test run|report`.
@@ -427,6 +428,14 @@ leaf! {
         /// Read every step again.
         #[arg(flag = "--again")]
         pub again: bool,
+        /// Run the tests the target reaches at open, and keep them as the job's baseline: a test failing the same way
+        /// there is not the job's failure at close.
+        #[arg(flag = "--baseline")]
+        pub baseline: bool,
+        /// A file the job may touch that no operation writes (a test's expected output, a fixture), as a glob.
+        #[builder(into)]
+        #[arg(kv = "--allow-file", each = nonempty)]
+        pub allow_file: Vec<OsString>,
     }
 }
 
@@ -509,6 +518,27 @@ leaf! {
         #[builder(init_required, into)]
         #[arg(positional, each = verify_word)]
         pub line: OsString,
+        /// The job (the running one by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// Lets the running job touch a file no operation writes (a test's expected output, a fixture): a glob added to
+    /// its job file's `allow_file`, with a receipt; the closing receipt names each such file.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "allow")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct JobAllow {
+        /// The file, or a glob of files, from the root.
+        #[builder(init_required, into)]
+        #[arg(positional, each = nonempty)]
+        pub glob: OsString,
         /// The job (the running one by default).
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
@@ -1451,6 +1481,7 @@ lines! {
     JobImport(JobImport) = ["job", "import"] in Job => read_job_import;
     JobList(JobList) = ["job", "list"] in Job => read_job_list;
     JobVerify(JobVerify) = ["job", "verify"] in Job => read_job_verify;
+    JobAllow(JobAllow) = ["job", "allow"] in Job => read_job_allow;
     TestRun(TestRun) = ["test", "run"] in Test => read_test_run;
     TestReport(TestReport) = ["test", "report"] in Test => read_test_report;
     Check(Check) = ["check"] in root => read_check;
@@ -1575,6 +1606,8 @@ fn read_job_start(w: &mut Words) -> Result<JobStart> {
         mode: kv(w, "--mode")?,
         verify: w.kvs("--verify")?.into_iter().map(OsString::from).collect(),
         again: w.flag("--again"),
+        baseline: w.flag("--baseline"),
+        allow_file: w.kvs("--allow-file")?.into_iter().map(OsString::from).collect(),
         name: pos(w),
     })
 }
@@ -1597,6 +1630,10 @@ fn read_job_list(_: &mut Words) -> Result<JobList> {
 
 fn read_job_verify(w: &mut Words) -> Result<JobVerify> {
     Ok(JobVerify { job: kv(w, "--job")?, line: need(w, "verification (test:<name>, reading:<spec>, check:<which>)", "job verify")? })
+}
+
+fn read_job_allow(w: &mut Words) -> Result<JobAllow> {
+    Ok(JobAllow { job: kv(w, "--job")?, glob: need(w, "file or glob (job allow GLOB)", "job allow")? })
 }
 
 fn read_test_run(w: &mut Words) -> Result<TestRun> {
@@ -1787,12 +1824,13 @@ mod tests {
             Custodian::run().argv(),
             Custodian::list().argv(),
             Custodian::diff("env").from("3").to("9").argv(),
-            Custodian::job().start().name("batch").kind("triage").target("CUST0004").intent("find the raise").mode("bounded").verify(["test:a", "check:all"]).again().argv(),
+            Custodian::job().start().name("batch").kind("triage").target("CUST0004").intent("find the raise").mode("bounded").verify(["test:a", "check:all"]).again().baseline().allow_file(["tests/ui/*.stderr"]).argv(),
             Custodian::job().close().name("batch").argv(),
             Custodian::job().brief().name("batch").bundle().argv(),
             Custodian::job().import("x.bundle").argv(),
             Custodian::job().list().argv(),
             Custodian::job().verify("test:config_names").job("j-1").argv(),
+            Custodian::job().allow("crates/*/tests/ui/*.stderr").job("j-1").argv(),
             Custodian::test().run().affected().observe("progress").git_ref("HEAD~1").job("j-2").argv(),
             Custodian::test().report().argv(),
             Custodian::check("all").job("j-3").argv(),
@@ -1882,7 +1920,7 @@ mod tests {
         assert_eq!(read(&words("plan carry a digest")).unwrap().display(), "custodian plan make carry a digest");
         assert_eq!(read(&words("exercise --n 2 --tests")).unwrap().display(), "custodian exercise run --n 2 --tests");
         assert_eq!(read(&words("exercise")).unwrap().display(), "custodian exercise run");
-        assert!(read(&words("exercise --ops add_field,inline")).unwrap_err().to_string().contains("\"inline\" is not one of the ops"));
+        assert!(read(&words("exercise --ops add_field,unroll")).unwrap_err().to_string().contains("\"unroll\" is not one of the ops"));
         assert!(read(&words("exercise --units item,trait")).is_err() && read(&words("exercise --n two")).is_err());
     }
 

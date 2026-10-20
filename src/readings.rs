@@ -134,10 +134,19 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
         }
     }
     let how = if ask.job.is_some() { Resolving::Job } else { Resolving::Free };
-    let reading = {
+    let mut reading = {
         let ws = ctx.workspace(&spec.scope, how)?;
         custodian_kit::api::run(ws, spec)?
     };
+    // where the index came from: the kit's (parsed, from cache), or the resident's held one; a kind that walks the
+    // syntax trees says its own (it parses when the index came from the cache)
+    if !spec.kind.walks_trees() || !matches!(ctx.index, Some(custodian_kit::reading::facts::IndexSource::FromCache { .. })) {
+        if let Some(i) = &ctx.index {
+            reading.report.index = Some(i.line());
+        }
+    }
+    ran.index = reading.report.index.clone();
+    ran.say(format!("index: {}", reading.report.index.clone().unwrap_or_else(|| "-".into())));
     let counts: Vec<String> = reading.counts().iter().map(|c| format!("{}: {}", c.what, c.n)).collect();
     match ctx.mode.project().map(|p| p.layout.clone()) {
         Some(layout) => {
