@@ -41,7 +41,8 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian self status [--bin-dir BIN_DIR] [--state-dir STATE_DIR]         What is installed, from its receipt
   custodian mcp serve [--root ROOT]                                         An MCP server on stdin and stdout whose tools are these lines, each call run as the command line runs it
   custodian preflight SPEC [--job JOB]                                      What a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written
-  custodian transform [SPEC] [--write] [--revert REVERT] [--job JOB]        A change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on a scratch copy, written with `--write`, its record kept; or a record's files put back (`--revert`)
+  custodian transform [SPEC] [--write] [--revert REVERT] [--batch BATCH] [--after-proof AFTER_PROOF] [--tests] [--job JOB]
+                                                                            A change spec made in the code by code_passenger, on the preflight receipt of this spec over this code: proved on the workspace's proof place, written with `--write`, its record kept; or a record's files put back (`--revert`)
   custodian plan make INTENT [--name NAME] [--job JOB]                      An intent's plan: where the work is, what can be reused, what is new, the top candidates' impact and the cost, the decisions to make before any step, and the steps proposed; nothing written
   custodian plan approve PLAN STEP [--operation OPERATION] [--job JOB]      A plan's step written as a change spec (`data/specs/changes/`), proposed until its preflight authorizes it
   custodian plan show PLAN [--job JOB]                                      A plan's page
