@@ -1,6 +1,6 @@
 [package]
 name = "custodian"
-version = "0.3.1"
+version = "0.3.2"
 edition = "2021"
 # ob-serve-a-bowl 0.2 needs 1.88; xccute 0.3.1 (the job lock is std File::try_lock) needs 1.89
 rust-version = "1.89"

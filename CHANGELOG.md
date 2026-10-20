@@ -1,5 +1,46 @@
 # Changelog
 
+## 0.3.2 (2026-10-20)
+
+On custodian_kit 0.3.3 and code_passenger 0.4.3, the fixes two real runs called for: the first bounded job in the
+kit closed `failed_test` on 26 tests that fail the same way at its base, and the exercise found 22 findings in the
+change path. The exercise itself ships here (built on the branch `exercise`, 93a4c59). Nothing public removed or
+changed: the rustdoc JSON of 0.3.1 and 0.3.2 differ only by added items. New lines are pinned to 3d1d5d5 (the tool's status to 6f66987).
+
+- `custodian exercise run|report`: the kit's exercise job from the command line (`exercise [--ops ...] [--units ...]
+  [--n N] [--tests] [--crate R] [--intents FILE] [--seed S]` reads as `exercise run`), its options one checked word;
+  `exercise` is a job kind; `exercise report` is a tool, `exercise run` a person's line, because it runs for minutes
+  ([src/exercise.rs#L15](https://github.com/1o-llc/custodian/blob/93a4c5987b5e4e92aa18ba69c48382e4f863d957/src/exercise.rs#L15), [src/exercise.rs#L41](https://github.com/1o-llc/custodian/blob/93a4c5987b5e4e92aa18ba69c48382e4f863d957/src/exercise.rs#L41)).
+- `job start --baseline`: the tests the target reaches run at open and kept as the job's baseline, so a test failing
+  the same way there is named pre-existing at close ([src/surface.rs#L434](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/surface.rs#L434), [src/jobs.rs#L208](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/jobs.rs#L208)).
+- `job start --allow-file GLOB` and `custodian job allow GLOB [--job ID]`: a file a bounded job may touch that no
+  operation writes (a test's expected output), with an `allow` receipt; a person's line, never a tool: an agent does
+  not widen its own bounds ([src/surface.rs#L537](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/surface.rs#L537), [src/jobs.rs#L359](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/jobs.rs#L359), [src/mcp.rs#L99](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/mcp.rs#L99); the
+  `job_start` tool leaves `allow_file` out, [src/mcp.rs#L64](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/mcp.rs#L64)).
+- `test run` measures the change from the running job's base (the commit `job start` recorded), not HEAD, and the
+  files git does not track yet are part of the change (was: HEAD, tracked files only, [src/testing.rs#L117 at 0.3.1](https://github.com/1o-llc/custodian/blob/633c596fc18251a72c1089558c823845da011ef3/src/testing.rs#L117),
+  [src/testing.rs#L79 at 0.3.1](https://github.com/1o-llc/custodian/blob/633c596fc18251a72c1089558c823845da011ef3/src/testing.rs#L79); now [src/testing.rs#L124](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/testing.rs#L124), [src/testing.rs#L79-L80](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/testing.rs#L79-L80)).
+- A run's receipt says where its parsed index came from: `done · index parsed (35901 ms)`, `index from cache (3314
+  ms)`, `index from daemon` (custodian serve held it from a run before) ([src/facade.rs#L219](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/facade.rs#L219),
+  [src/facade.rs#L289](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/facade.rs#L289), [src/readings.rs#L148](https://github.com/1o-llc/custodian/blob/3d1d5d5d8144d1fee5630b1c661949a11ad3f679/src/readings.rs#L148)).
+- An MCP tool's `status` is still the line's word (`done`); where the index came from is beside it, `index`
+  ([src/mcp.rs#L303-L310](https://github.com/1o-llc/custodian/blob/6f66987ed0eb5cf8b4158c9dcade87f3e7e19896/src/mcp.rs#L303-L310), pinned to 6f66987).
+- The tool list's golden carries `inline`, `wrap` and `job_start`'s `baseline`; the help's golden `job start
+  --baseline --allow-file` and `job allow`; the closing line says the two facts as set at open
+  (`outcome_known: false at open, known at #6`).
+
+### Proof
+
+- The exercise again on the three projects it found 22 findings on (the kit's fixtures `ws` and `features_ws`, and a
+  copy of `access_vocabulary`), `custodian exercise --n 2`, built from these sources: 172 cases, 164 passed, 8
+  findings, every one a refusal that is right: `add_variant` with a match that has no catch-all (2), a private field
+  a struct literal elsewhere cannot name (1), a `gate` while code outside the item uses it (2), and `#[bitpack]`
+  refusing `add_field` and `add_constructor` by name, `[CUST0040]` (3). No `transform-unproved` is left. Before: 162
+  cases, 140 passed, 22 findings, 10 not run (the cheap model).
+- `inline` and `wrap` ran 10 cases, all passed (inline on `access_vocabulary` and the kit fixture `ws`; the
+  `features_ws` fixture has no function that can be inlined: each is called from another crate).
+- tests/cli.rs, the surface tests and the tool list's golden pass; the free-mode run says `index parsed (`.
+
 ## 0.3.1 (2026-10-19)
 
 One rule, one place, on custodian_kit 0.3.2 and differences_kit 0.1.1. The
