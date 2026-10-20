@@ -1,5 +1,50 @@
 # Changelog
 
+## 0.3.8 (2026-10-20)
+
+On custodian_kit 0.3.9: what last night's fleet_ops swaps cost, read from their receipts, each made to cost once. The
+295 members of the largest shape batch (receipt #1762) took 1,849 seconds, 253 of them the batch's compile (#1477)
+and the other 1,595 the members' preflights: 0.3.7's `--preflight` ran a whole preflight per member, the code read
+again each time. On a copy of the kit, 0.3.7 preflights those 295 in 1,743 seconds and 0.3.8 in 55 (101 for the
+whole line, the index parse included), every member's verdict the same. Then a test run after the swaps built every
+dependent's dependent from an empty build in the worktree, for six hours on battery. Measured on a copy of the kit
+after a body swap in `sql_executor`: 0.3.7 compiled 33 crates into the worktree's own build and ran 3 test lines, and
+3 crates again after the next swap; 0.3.8 compiled 6 into the proof's kept build and ran 2 lines, and 2 crates after
+the next swap. Nothing is removed from the API: the rustdoc JSON of 0.3.7 and 0.3.8 differ by 10 additions and no
+removal. Every link is pinned to 6491cb8; the lines it replaces to 1a1fe24 (0.3.7).
+
+- **`custodian preflight --batch LIST`** (`changes::preflight_batch`, [changes.rs L89](https://github.com/1o-llc/custodian/blob/6491cb8/src/changes.rs#L89)): every
+  spec LIST names, preflighted by custodian_kit's `run_preflight_batch` over the one workspace the run holds open: one
+  scan, one code digest, one code graph, each member checked by its own preflight's rules, one `preflight-batch`
+  receipt listing each member and its verdict. `transform --batch --preflight` runs it, where 0.3.7 ran a whole
+  preflight per member ([changes.rs L168 at 0.3.7](https://github.com/1o-llc/custodian/blob/1a1fe24/src/changes.rs#L168)), and `transform --batch` takes its receipt
+  as each member's gate, the journal read once (`gate_all`, [changes.rs L231](https://github.com/1o-llc/custodian/blob/6491cb8/src/changes.rs#L231)). Proof:
+  tests/modes.rs `a_batch_preflight_is_one_receipt_and_the_batch_transform_goes_on_it` ([L240](https://github.com/1o-llc/custodian/blob/6491cb8/tests/modes.rs#L240)),
+  each member's verdict the one it gets alone, and custodian_kit's `a_batch_preflight_gives_each_member_the_verdict_its_own_preflight_gives`.
+- **`test run` builds on the kept build.** Every line runs on the workspace's one copy and kept build, custodian_kit's
+  `proof_place` (the proof's own), synced first ([testing.rs L188](https://github.com/1o-llc/custodian/blob/6491cb8/src/testing.rs#L188)); 0.3.7 ran cargo in the
+  worktree ([testing.rs L182 at 0.3.7](https://github.com/1o-llc/custodian/blob/1a1fe24/src/testing.rs#L182)). `--affected` is the proof's rule: the crates the
+  change is in, their direct dependents, and the readers of a public signature it alters, found from the diff
+  ([testing.rs L103](https://github.com/1o-llc/custodian/blob/6491cb8/src/testing.rs#L103)). Proof: tests/kept_build.rs
+  `a_test_run_after_a_swap_compiles_the_crate_and_its_direct_dependents_on_the_kept_build` ([L47](https://github.com/1o-llc/custodian/blob/6491cb8/tests/kept_build.rs#L47)):
+  base, mid, far; a swap in base compiles base and mid, not far, nothing in the workspace, and the next run compiles
+  nothing.
+- **No cargo line on a dying battery.** Under 20% and not charging, a cargo line custodian starts is refused with
+  `[CUST0042]` and the job stays open ([facade.rs L440](https://github.com/1o-llc/custodian/blob/6491cb8/src/facade.rs#L440)). Proof: tests/kept_build.rs
+  `a_dying_battery_refuses_the_cargo_line_and_the_job_stays_open` ([L70](https://github.com/1o-llc/custodian/blob/6491cb8/tests/kept_build.rs#L70)).
+- **custodian reads its own cost.** `job start` and `agent brief` say what waits will cost, from this workspace's
+  receipts: N preflights × their measured time, a compile and a test line per crate, the kept build's size, each figure
+  measured or unknown ([budget.rs L13](https://github.com/1o-llc/custodian/blob/6491cb8/src/budget.rs#L13), [jobs.rs L246](https://github.com/1o-llc/custodian/blob/6491cb8/src/jobs.rs#L246),
+  [agent.rs L152](https://github.com/1o-llc/custodian/blob/6491cb8/src/agent.rs#L152)); the handoff's "what runs next" says it too. `job start --budget
+  hours=N,battery=P` (or `.custodian/config/budget.toml`): a step whose measured time would take the job past its
+  hours is refused before it starts with `[CUST0043]` ([budget.rs L22](https://github.com/1o-llc/custodian/blob/6491cb8/src/budget.rs#L22)), and the battery is the
+  floor its cargo lines keep. The closing receipt keeps the time per step kind and names the kinds paid one member at a
+  time where a batch form exists ([custodian_kit jobs.rs L1114](https://github.com/1o-llc/custodian_kit/blob/2899848/src/jobs.rs#L1114)). Proof: tests/costs.rs
+  `the_planned_cost_is_measured_or_unknown_and_the_closing_names_steps_paid_one_at_a_time` ([L19](https://github.com/1o-llc/custodian/blob/6491cb8/tests/costs.rs#L19))
+  and `a_step_past_the_hours_budget_is_refused_before_it_starts_and_the_job_stays_open` ([L45](https://github.com/1o-llc/custodian/blob/6491cb8/tests/costs.rs#L45)).
+
+`cargo test --all-features` passes; `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+
 ## 0.3.7 (2026-10-20)
 
 One finding from the kit's first batch on 0.3.6. A batch's members each need a preflight receipt over the code as it
