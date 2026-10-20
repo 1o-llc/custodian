@@ -1,5 +1,24 @@
 # Changelog
 
+## 0.3.7 (2026-10-20)
+
+One finding from the kit's first batch on 0.3.6. A batch's members each need a preflight receipt over the code as it
+is, and `custodian preflight` opens the workspace anew each time: about 45 s on the kit, the index parsed again for
+every member, so fleet_ops' 640 swaps would spend 8 hours on preflights before one batch was made. James's rule says
+one preflight listing them all. Nothing is removed from the API: the rustdoc JSON of 0.3.6 and 0.3.7 differ by
+4 additions and no removal. Every link is pinned to 6156da5; the lines it replaces to d1cc51d (0.3.6).
+
+- **`custodian transform --batch LIST --preflight`** (`changes::transform_batch_with`,
+  [changes.rs L155](https://github.com/1o-llc/custodian/blob/6156da5/src/changes.rs#L155)): the batch preflights each member itself first, in the one run, over the
+  workspace the run holds open (`Ctx::workspace` keeps it while the code does not move), each member with its own
+  preflight receipt as `custodian preflight` leaves it ([changes.rs L164](https://github.com/1o-llc/custodian/blob/6156da5/src/changes.rs#L164)); a member the
+  preflight refuses is left out and named, the rest go as the batch. The line says how many were authorized and how
+  long the preflights took. Proof: tests/modes.rs `a_batch_preflights_its_members_in_one_run`
+  ([L211](https://github.com/1o-llc/custodian/blob/6156da5/tests/modes.rs#L211)): two members authorized and one whose target is not in the code refused, in one
+  run; the two written, the job closed accepted.
+
+`cargo test --all-features` and `cargo clippy --all-targets --all-features -- -D warnings` pass.
+
 ## 0.3.6 (2026-10-20)
 
 On custodian_kit 0.3.8 and code_passenger 0.4.6: James's rule for a repeated shape as a custodian line. Prove one
