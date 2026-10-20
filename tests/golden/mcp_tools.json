@@ -48,7 +48,8 @@
             "bundle",
             "sweep",
             "impact",
-            "linkage"
+            "linkage",
+            "patterns"
           ],
           "type": "string"
         },
