@@ -77,7 +77,13 @@ pub fn preflight(ctx: &mut Ctx, spec: &str, job: Option<String>) -> Result<Ran> 
 /// `custodian transform SPEC [--write] [--job ID]`, `custodian transform --revert RECORD`: code_passenger's
 /// `transform` line, through the executor with its receipt (`transform`, the kit's word, so the job's close reads it),
 /// on the preflight receipt of this spec over this code.
-pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: bool, revert: Option<&str>, job: Option<String>) -> Result<Ran> {
+pub fn transform(ctx: &mut Ctx, spec: Option<&str>, write: bool, revert: Option<&str>, job: Option<String>) -> Result<Ran> {
+    transform_with(ctx, spec, write, false, revert, job)
+}
+
+/// `custodian transform SPEC [--write] [--tests]`: as `transform`, the crate's tests run on the proof against the
+/// same tests before the change with `tests`.
+pub fn transform_with(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: bool, revert: Option<&str>, job: Option<String>) -> Result<Ran> {
     if !crate::maint::passenger_installed() {
         return Err(Code::ProgramMissing.refuse("code-passenger is the writer: cargo install code_passenger"));
     }
