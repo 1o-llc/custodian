@@ -577,6 +577,20 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
         pub job: Option<OsString>,
+        /// Each line with these features on (comma-separated), as cargo's `--features`.
+        #[builder(into)]
+        #[arg(kv = "--features", each = plain)]
+        #[conflicts_with("all_features")]
+        #[conflicts_with("matrix")]
+        pub features: Option<OsString>,
+        /// Each line with every feature on.
+        #[arg(flag = "--all-features")]
+        #[conflicts_with("matrix")]
+        pub all_features: bool,
+        /// Each line once per configuration of its crate's check matrix (the transform's N of N: each feature set,
+        /// with and without the defaults).
+        #[arg(flag = "--matrix")]
+        pub matrix: bool,
     }
 }
 
@@ -1718,7 +1732,7 @@ fn read_job_allow(w: &mut Words) -> Result<JobAllow> {
 }
 
 fn read_test_run(w: &mut Words) -> Result<TestRun> {
-    Ok(TestRun { affected: w.flag("--affected"), all: w.flag("--all"), observe: kv(w, "--observe")?, git_ref: kv(w, "--ref")?, job: kv(w, "--job")? })
+    Ok(TestRun { affected: w.flag("--affected"), all: w.flag("--all"), observe: kv(w, "--observe")?, git_ref: kv(w, "--ref")?, job: kv(w, "--job")?, features: kv(w, "--features")?, all_features: w.flag("--all-features"), matrix: w.flag("--matrix") })
 }
 
 fn read_test_report(_: &mut Words) -> Result<TestReport> {

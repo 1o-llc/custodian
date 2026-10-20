@@ -1,4 +1,5 @@
-//! `custodian test [--affected | --all] [--observe failed|progress|all] [--ref REF]` and `custodian test report`.
+//! `custodian test [--affected | --all] [--observe failed|progress|all] [--ref REF] [--features F | --all-features |
+//! --matrix]` and `custodian test report`.
 //!
 //! The lines: `--affected` (the default) reads custodian_kit's `affected_tests` over the change since the ref (the
 //! running job's base commit, else HEAD; the files git does not track yet too) and takes the exact cargo test lines
@@ -16,6 +17,7 @@ use crate::readings::{self, Ask};
 use crate::surface::{so, TestRun as Test};
 use crate::words::ObserveLevel;
 use custodian_kit::api::{ReadingSpec, Resolving, Scope};
+use custodian_kit::testrun::Configuration;
 use xccute_commands::CargoBuilder;
 
 
@@ -28,11 +30,16 @@ pub struct Line {
     pub filters: Vec<String>,
 }
 
-/// The cargo line, as xccute_commands builds it.
+/// The cargo line, as xccute_commands builds it; a target word carrying a feature configuration (`lib [features
+/// json]`, custodian_kit's `testrun::Configuration`) runs under it.
 pub fn cargo_line(root: &std::path::Path, l: &Line) -> CargoBuilder {
     let mut c = CargoBuilder::new("test").manifest_path(root.join("Cargo.toml").to_string_lossy().into_owned()).package(l.package.clone());
+    let (word, config) = Configuration::of_target(&l.target);
+    for a in config.args() {
+        c = c.arg(a);
+    }
     // the target words custodian_kit's affected_tests writes: `lib`, `bin:<name>`, `test:<name>`
-    match l.target.as_str() {
+    match word.as_str() {
         "all" => {}
         "lib+bins" => c = c.lib().arg("--bins"),
         "lib" => c = c.lib(),
@@ -116,6 +123,39 @@ pub fn outcome_of(line: &str) -> Option<(String, String)> {
     matches!(outcome, "ok" | "FAILED" | "ignored").then(|| (name.trim().to_string(), outcome.to_string()))
 }
 
+/// Each line under the configurations asked: `--features F` and `--all-features` one each, `--matrix` every
+/// configuration of the line's crate (klepto's check matrix); none asked, cargo's default features.
+pub fn configured(ctx: &mut Ctx, lines: Vec<Line>, l: &Test, ran: &mut Ran) -> Result<Vec<Line>> {
+    let asked = |c: Configuration| move |line: Line| Line { target: c.target_with(&line.target), ..line };
+    if let Some(f) = so(&l.features) {
+        let c = Configuration { features: f.split(',').map(str::trim).filter(|x| !x.is_empty()).map(str::to_string).collect(), ..Default::default() };
+        // a crate that does not declare them runs as it is (cargo refuses a feature a package does not have)
+        let ws = ctx.workspace(&Scope::default(), Resolving::Free)?;
+        let declares = |pkg: &str| ws.klepto().features.get(&pkg.replace('-', "_")).is_some_and(|m| c.features.iter().all(|x| m.features.contains_key(x)));
+        let (with, without): (Vec<Line>, Vec<Line>) = lines.into_iter().partition(|line| declares(&line.package));
+        ran.say(format!("{} lines with {}; {} lines as they are (their crate does not declare them)", with.len(), c.label(), without.len()));
+        return Ok(with.into_iter().map(asked(c)).chain(without).collect());
+    }
+    if l.all_features {
+        ran.say("each line with all-features".to_string());
+        return Ok(lines.into_iter().map(asked(Configuration { all: true, ..Default::default() })).collect());
+    }
+    if !l.matrix {
+        return Ok(lines);
+    }
+    let ws = ctx.workspace(&Scope::default(), Resolving::Free)?;
+    let mut out = Vec::new();
+    for line in lines {
+        let model = ws.klepto().features.get(&line.package.replace('-', "_"));
+        let configs = model.map(Configuration::matrix).filter(|m| !m.is_empty()).unwrap_or_else(|| vec![Configuration::default()]);
+        for c in configs {
+            out.push(Line { target: c.target_with(&line.target), ..line.clone() });
+        }
+    }
+    ran.say(format!("--matrix: {} lines, each crate's line once per configuration of its check matrix", out.len()));
+    Ok(out)
+}
+
 /// `custodian test`.
 pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
     let level = ObserveLevel::of_word(&so(&l.observe).unwrap_or_else(|| "failed".into()))?;
@@ -133,6 +173,7 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
         ran.say(format!("no test lines: the change since {git_ref} reaches no test (custodian test --all runs every package)"));
         return Ok(ran);
     }
+    let lines = configured(ctx, lines, l, &mut ran)?;
     let root = ctx.root().to_path_buf();
     let mut obs = Observers::new(level);
     let (mut total_pass, mut total_fail) = (0, 0);
