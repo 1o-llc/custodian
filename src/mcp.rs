@@ -100,6 +100,7 @@ pub const A_PERSONS: &[(&str, &str)] = &[
     ("agent init", "makes the folder in agent mode"),
     ("agent guard", "the pre-edit hook's question"),
     ("job import", "a bundle made elsewhere"),
+    ("receipts merge", "another checkout's receipts, joined to this one's"),
     ("job allow", "lets a job touch a file no operation writes"),
     ("sweep", "offers routes for a person to declare"),
     ("serve", "the resident, in a person's terminal"),

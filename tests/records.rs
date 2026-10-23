@@ -249,3 +249,20 @@ fn copy_tree(from: &Path, to: &Path) {
         }
     }
 }
+
+/// Two checkouts numbering receipts the same: `receipts merge OTHER` keeps the other's receipts here under the next
+/// free numbers, says each number there and here, writes the map, and a second merge keeps nothing.
+#[test]
+fn receipts_merge_makes_two_checkouts_one_history_by_union() {
+    let a = fixture("merge-a");
+    let b = fixture("merge-b");
+    ok(&a, &["agent", "init"], 0);
+    ok(&b, &["agent", "init"], 0);
+    ok(&a, &["run", "crate:core_lib", "--kind", "dependents"], 0);
+    ok(&b, &["run", "crate:app", "--kind", "dependents"], 0);
+    let other = b.join(".custodian");
+    let merged = ok(&a, &["receipts", "merge", other.to_str().unwrap()], 0);
+    assert!(merged.contains("kept here under new numbers") && merged.contains(" there is #") && merged.contains("the map: "), "{merged}");
+    let again = ok(&a, &["receipts", "merge", other.to_str().unwrap()], 0);
+    assert!(again.contains(" 0 kept here under new numbers"), "{again}");
+}

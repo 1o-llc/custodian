@@ -337,3 +337,42 @@ fn the_help_lines_are_generated_from_the_declarations() {
     let golden = include_str!("golden/help.txt");
     assert!(r.out == golden, "the help moved from tests/golden/help.txt; the help made now:\n{}", r.out);
 }
+
+/// A swap undone is a covered change: a proof and its batch written, then the batch reverted in one step (its folder)
+/// and the proof by its record; the close covers every line the reverts put back and is accepted.
+#[test]
+fn a_bounded_job_that_swaps_then_reverts_closes_accepted_with_no_hand_lines() {
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("no code-passenger with the transform line: skipped");
+        return;
+    };
+    let b = Some(bin.as_path());
+    let d = fixture("bounded-revert");
+    ok_with(&d, &["agent", "init", "--job-mode", "bounded"], b, 0);
+    ok_with(&d, &["job", "start", "undo", "--target", "core_lib::env_or", "--intent", "a swap made and put back", "--verify", "test:core_lib"], b, 0);
+    let before = std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap();
+    let attr = |name: &str, target: &str| format!("name = \"{name}\"\nobjective = \"o\"\noperation = \"add_attribute\"\ntarget = \"{target}\"\nattribute = \"#[must_use]\"\n");
+    change_spec(&d, "env-or", &attr("env-or", "core_lib::env_or"));
+    ok_with(&d, &["preflight", "env-or"], b, 0);
+    let first = ok_with(&d, &["transform", "env-or", "--write"], b, 0);
+    let p = seq_of(&first).to_string();
+    change_spec(&d, "token", &attr("token", "core_lib::token"));
+    change_spec(&d, "socket", &attr("socket", "core_lib::socket"));
+    ok_with(&d, &["preflight", "token"], b, 0);
+    ok_with(&d, &["preflight", "socket"], b, 0);
+    std::fs::write(d.join("batch.list"), "token\nsocket\n").unwrap();
+    ok_with(&d, &["transform", "--batch", "batch.list", "--after-proof", &p, "--write"], b, 0);
+    let receipts: Vec<serde_json::Value> = std::fs::read_dir(d.join(".custodian/data/receipts")).unwrap().filter_map(|e| serde_json::from_str(&std::fs::read_to_string(e.unwrap().path()).ok()?).ok()).collect();
+    let out = |pred: &dyn Fn(&serde_json::Value) -> bool| receipts.iter().find(|r| r["command"] == "transform" && pred(r)).and_then(|r| r["outputs"][0].as_str()).map(str::to_string).expect("a transform record");
+    let member = out(&|r| r["name"].as_str().is_some_and(|n| n.starts_with("token (batch of 2")));
+    let folder = Path::new(&member).parent().unwrap().display().to_string();
+    let proof = out(&|r| r["name"] == "env-or" && r["outputs"][0].as_str().is_some_and(|o| o.ends_with(".json")));
+    // the batch in one step, then its proof
+    let undone = ok_with(&d, &["transform", "--revert", &folder], b, 0);
+    assert!(undone.contains("reverted") && undone.contains("(batch of 2)") && undone.contains("cargo check once after the revert"), "{undone}");
+    ok_with(&d, &["transform", "--revert", &proof], b, 0);
+    assert_eq!(std::fs::read_to_string(d.join("crates/core_lib/src/lib.rs")).unwrap(), before, "every swap put back");
+    ok_with(&d, &["test", "run", "--all"], b, 0);
+    let closed = ok_with(&d, &["job", "close"], b, 0);
+    assert!(closed.contains("result: accepted") && !closed.contains("by hand"), "{closed}");
+}

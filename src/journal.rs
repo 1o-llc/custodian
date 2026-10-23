@@ -598,3 +598,20 @@ mod tests {
         assert_eq!(kit_rows, 1, "the receipt is in the kit's runs table");
     }
 }
+
+/// `custodian receipts merge OTHER`: custodian_kit's `receipts::merge` over this workspace's store, then the journal
+/// as the receipt files now say. Each receipt kept is said with its number there and here.
+pub fn merge_line(ctx: &mut crate::facade::Ctx, other: &std::path::Path) -> crate::codes::Result<crate::facade::Ran> {
+    let store = custodian_kit::store::Store::find(ctx.root()).ok_or_else(|| crate::codes::Code::NeedsFolder.refuse(ctx.root().display()))?;
+    let m = custodian_kit::receipts::merge(&store, other)?;
+    let mut ran = crate::facade::Ran::named("receipts merge");
+    ran.say(format!("{}: {} receipts already here, {} kept here under new numbers, {} numbers both gave to different receipts", m.other, m.same, m.kept.len(), m.collided.len()));
+    for (was, now) in &m.kept {
+        ran.say(format!("#{was} there is #{now} here"));
+    }
+    if let Some(f) = &m.map {
+        ran.say(format!("the map: {f}"));
+        ran.outputs = vec![f.clone()];
+    }
+    Ok(ran)
+}

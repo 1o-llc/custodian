@@ -173,6 +173,7 @@ macro_rules! leaf {
 #[composite(command = "preflight", ty = Preflight, init = "spec")]
 #[composite(command = "transform", ty = Transform)]
 #[composite(surface = "plan", ty = Plan)]
+#[composite(surface = "receipts", ty = Receipts)]
 #[composite(command = "decide", ty = Decide)]
 #[composite(surface = "linkage", ty = Linkage)]
 #[composite(surface = "exercise", ty = Exercise)]
@@ -201,6 +202,12 @@ pub struct Agent;
 #[composite(command = "verify", ty = JobVerify, init = "line")]
 #[composite(command = "allow", ty = JobAllow, init = "glob")]
 pub struct Job;
+
+/// `custodian receipts merge`.
+#[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
+#[subcommand(segment = "receipts")]
+#[composite(command = "merge", ty = ReceiptsMerge, init = "other")]
+pub struct Receipts;
 
 /// `custodian test run|report`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
@@ -531,6 +538,24 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
         pub job: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// Another checkout's receipts made one history with this one's, by union (custodian_kit's `receipts::merge`):
+    /// each receipt there that is not here is kept here under the next free number, and the map from its number
+    /// there to its number here is written beside the receipts. Nothing here is renumbered or removed.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "merge")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct ReceiptsMerge {
+        /// The other checkout's `.custodian` folder (or its `data/receipts`).
+        #[builder(init_required, into)]
+        #[arg(positional, each = nonempty)]
+        pub other: OsString,
     }
 }
 
@@ -1567,7 +1592,7 @@ macro_rules! lines {
         pub const DECLARED: &[(&str, Declared)] = &[$((concat!($($word, " "),+), $ty::DECLARED),)*];
 
         /// Every surface the root has, by its segment.
-        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise"];
+        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise", "receipts"];
 
         impl Line {
             /// The words that name the line: `job start`.
@@ -1646,6 +1671,7 @@ lines! {
     JobList(JobList) = ["job", "list"] in Job => read_job_list;
     JobVerify(JobVerify) = ["job", "verify"] in Job => read_job_verify;
     JobAllow(JobAllow) = ["job", "allow"] in Job => read_job_allow;
+    ReceiptsMerge(ReceiptsMerge) = ["receipts", "merge"] in Receipts => read_receipts_merge;
     TestRun(TestRun) = ["test", "run"] in Test => read_test_run;
     TestReport(TestReport) = ["test", "report"] in Test => read_test_report;
     Check(Check) = ["check"] in root => read_check;
@@ -1799,6 +1825,10 @@ fn read_job_list(_: &mut Words) -> Result<JobList> {
 
 fn read_job_verify(w: &mut Words) -> Result<JobVerify> {
     Ok(JobVerify { job: kv(w, "--job")?, line: need(w, "verification (test:<name>, reading:<spec>, check:<which>)", "job verify")? })
+}
+
+fn read_receipts_merge(w: &mut Words) -> Result<ReceiptsMerge> {
+    Ok(ReceiptsMerge { other: need(w, "the other checkout's .custodian folder (receipts merge OTHER)", "receipts merge")? })
 }
 
 fn read_job_allow(w: &mut Words) -> Result<JobAllow> {
@@ -2060,6 +2090,7 @@ mod tests {
             Custodian::cost().argv(),
             Custodian::requirements().route("crate:core_lib").intent("add_hex_to_core_lib").spec("add-hex.toml").faces("prerequisites,rust").job("j-6").again().argv(),
             Custodian::requirements().argv(),
+            Custodian::receipts().merge("other/.custodian").argv(),
         ];
         let mut paths: Vec<String> = lines.iter().map(|l| read(l).unwrap_or_else(|e| panic!("{l:?}: {e}")).path().to_string()).collect();
         paths.sort();

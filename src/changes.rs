@@ -132,7 +132,9 @@ pub fn transform_with(ctx: &mut Ctx, spec: Option<&str>, write: bool, tests: boo
     let mut ran = Ran::named(spec.or(revert).unwrap_or_default());
     ran.job = job.clone();
     let (words, name, outputs): (Vec<String>, String, Vec<String>) = match (spec, revert) {
-        (_, Some(r)) => (vec!["transform".into(), "--revert".into(), r.into()], format!("revert {r}"), Vec::new()),
+        // the revert's own record (code_passenger writes it beside the record, or beside a batch's folder) is the
+        // receipt's output, so the job's close covers the lines it puts back as a transform's
+        (_, Some(r)) => (vec!["transform".into(), "--revert".into(), r.into()], format!("revert {r}"), vec![ctx.rel(&revert_record(&root, r))]),
         (Some(s), None) => {
             crate::budget::before_step(ctx, job.as_deref(), &format!("transform {s}"), custodian_kit::step_time::TRANSFORM, 1)?;
             let path = spec_path(ctx, s)?;
@@ -441,3 +443,10 @@ pub fn write_spec(ctx: &Ctx, spec: &custodian_kit::change::ChangeSpec) -> Result
     Ok(file)
 }
 
+/// The record `code-passenger transform --revert RECORD` writes: `<record>.revert.json` beside a record,
+/// `<folder>.revert.json` beside a batch's folder.
+pub fn revert_record(root: &std::path::Path, record: &str) -> std::path::PathBuf {
+    let p = root.join(record);
+    let name = if p.is_dir() { p.file_name() } else { p.file_stem() }.map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
+    p.with_file_name(format!("{name}.revert.json"))
+}

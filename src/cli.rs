@@ -96,6 +96,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::JobList(_) => need_agent(ctx).and_then(|_| crate::jobs::list(ctx)),
         Line::JobVerify(l) => need_agent(ctx).and_then(|_| crate::jobs::verify(ctx, so(&l.job).as_deref(), &s(&l.line))),
         Line::JobAllow(l) => need_agent(ctx).and_then(|_| crate::jobs::allow(ctx, so(&l.job).as_deref(), &s(&l.glob))),
+        Line::ReceiptsMerge(l) => crate::journal::merge_line(ctx, std::path::Path::new(&l.other)),
         Line::TestRun(l) => crate::testing::test(ctx, l),
         Line::TestReport(_) => crate::testing::report(ctx),
         Line::Check(l) => crate::maint::check(ctx, &s(&l.which), so(&l.job)),
