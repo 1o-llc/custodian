@@ -1,5 +1,36 @@
 # Changelog
 
+## 0.3.11 (2026-10-23)
+
+An agent that works in a repository custodian serves has to know how custodian expects it to work before it reads
+a line of code: run `agent brief` first, ask the readings instead of reading by hand, open a job before changing
+code, write specs in strict mode, ask decisions at the start, end with the handoff. Those rules lived only in
+James's messages. This release writes them where an agent harness loads them, at install. It also moves onto
+custodian_kit 0.3.12 (core-1o 0.2), so a change spec is written in 1o only. Nothing is removed from the API (the
+rustdoc JSON of 0.3.10 and 0.3.11 differ by six additions, `install::SKILL_RULES`, `install::skill_text` and the
+`skill_dir` builder methods, and no removal). Links are pinned to 482d5d1; the lines they replace to 030a200
+(0.3.10).
+
+- **The agent skill.** `self install` writes `SKILL.md` in a folder beside the install receipt,
+  `<state dir>/custodian/` ([install.rs L51](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/install.rs#L51), written at [L82](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/install.rs#L82)),
+  or in `--skill-dir DIR` ([surface.rs L948](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/surface.rs#L948)), and prints where; `--dry-run` says where
+  it would. The file ([install.rs L39](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/install.rs#L39)) has the frontmatter a skill is loaded by (`name`,
+  `description`), the six rules verbatim (`SKILL_RULES`, [install.rs L29](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/install.rs#L29)) and every line
+  as `custodian` with no words lists them. `self status` names the skill and says when it was written by another
+  version ([install.rs L102](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/install.rs#L102), [surface.rs L998](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/surface.rs#L998)). Test:
+  `self_install_plans_installs_keeps_the_receipt_and_uninstalls` (tests/cli.rs): installed into a temporary
+  folder, the skill is there with its frontmatter, each rule and every help line, status names it, and
+  `--skill-dir` writes the same file where it says. The README's "The agent skill" says it.
+- **A change spec is written in 1o only.** `write_spec` ([changes.rs L436](https://github.com/1o-llc/custodian/blob/482d5d1a319551aa22ad27d31f1f0a697d47aa86/src/changes.rs#L436)) writes
+  `v1.<name>.1o.change`; it fell back to a TOML twin when 1o could not carry a double quote
+  ([changes.rs L436](https://github.com/1o-llc/custodian/blob/030a20029974287fb626ec883f348398b6ba1851/src/changes.rs#L436)), which core-1o 0.2's escapes now carry. A TOML spec already in
+  `data/specs/changes/` is still read. A plan's approved step is written in 1o too (custodian_kit 0.3.12). Test:
+  `an_intent_is_planned_and_a_step_becomes_a_change_spec` (tests/modes.rs). The code-passenger that makes these
+  specs must be built against custodian_kit 0.3.12.
+- custodian_kit 0.3.12, task_history 0.1.2.
+
+Proof: `cargo test --all-features`, with a code-passenger built against custodian_kit 0.3.12 on PATH.
+
 ## 0.3.10 (2026-10-23)
 
 On custodian_kit 0.3.11. An agent's swap of three kit crates showed custodian's cost line three to five times
