@@ -1,5 +1,39 @@
 # Changelog
 
+## 0.3.10 (2026-10-23)
+
+On custodian_kit 0.3.11. An agent's swap of three kit crates showed custodian's cost line three to five times
+low (8.9 min said, 27.5 min measured on xccute_observations), its budget refusing the job's own tests, a revert
+counted as a hand edit, two checkouts numbering receipts the same, a close saying `pending` after its tests had
+passed under plain cargo, and every test's time written empty. James's word on the budget: nothing is refused by
+hours; the cost is information, and the battery rule is the one that stops a step. Each is fixed here with a test.
+On a copy of that job's folder the cost line now says 33.2 min for the work the job did, against the 27.5 min it
+took; the rest is the test run, measured on larger crates before this one ran. Nothing is removed from the API
+(the rustdoc JSON of 0.3.9 and 0.3.10 differ by 240 additions and no removal). Links are pinned to 39869e1; the lines they replace to 4da30db (0.3.9).
+
+- **The cost line is the job's.** `planned_line` ([budget.rs L16](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/budget.rs#L16)) counts, in a running job, the
+  specs written since the job before it closed, and says the whole job with what it has spent; it counted every
+  spec waiting ([budget.rs L13](https://github.com/1o-llc/custodian/blob/4da30db8bb2c900eacf8e97f58117e200dc267f8/src/budget.rs#L13)). Test: `the_planned_cost_is_measured_or_unknown_and_the_closing_names_steps_paid_one_at_a_time`.
+- **Nothing is refused by hours.** `before_step` ([budget.rs L35](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/budget.rs#L35)) sets the battery floor and
+  refuses nothing; it refused a step past the hours, tests included ([budget.rs L22](https://github.com/1o-llc/custodian/blob/4da30db8bb2c900eacf8e97f58117e200dc267f8/src/budget.rs#L22)). The brief says how
+  far past them a job is (`over_line`, [L48](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/budget.rs#L48)) and so does the close. Test:
+  `a_job_past_its_hours_budget_runs_its_change_steps_and_tests_and_closes_accepted`.
+- **A revert is a covered change.** `transform --revert`'s receipt carries the revert's own record
+  ([changes.rs L137](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/changes.rs#L137), `revert_record`, [L448](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/changes.rs#L448)); it carried nothing
+  ([changes.rs L135](https://github.com/1o-llc/custodian/blob/4da30db8bb2c900eacf8e97f58117e200dc267f8/src/changes.rs#L135)), so the close read its lines as written by hand. A batch's folder reverts in one
+  step (code_passenger 0.4.8). Test: `a_bounded_job_that_swaps_then_reverts_closes_accepted_with_no_hand_lines`.
+- **`custodian receipts merge OTHER`.** Another checkout's receipts kept here under the next free numbers, the map
+  written beside them (`merge_line`, [journal.rs L613](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/journal.rs#L613), over custodian_kit's `receipts::merge`).
+  Test: `receipts_merge_makes_two_checkouts_one_history_by_union`.
+- **The close runs what no receipt verified.** Before it decides, the close runs each declared `test:` line no
+  receipt of the job satisfies (`verify_before_close`, [testing.rs L198](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/testing.rs#L198), called at
+  [jobs.rs L285](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/jobs.rs#L285)) and says the receipt that satisfied each. Test (custodian_kit):
+  `a_verification_satisfied_by_a_test_receipt_names_it_and_the_close_is_accepted`.
+- **Each test's time.** `test run` asks libtest for `--report-time` ([testing.rs L62](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/testing.rs#L62)), keeps each
+  time in the journal (`test_run_timed`, [journal.rs L362](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/journal.rs#L362); it wrote NULL, [journal.rs L356](https://github.com/1o-llc/custodian/blob/4da30db8bb2c900eacf8e97f58117e200dc267f8/src/journal.rs#L356))
+  and in `.maintenance/timings` ([testing.rs L273](https://github.com/1o-llc/custodian/blob/39869e16d868ae586ac9301b721a3592cbad6bd0/src/testing.rs#L273)), so `annotate` places a `#[timed_test]` per test.
+  Test: `a_test_run_keeps_each_tests_time_and_annotate_plans_one_insert_per_test`.
+
 ## 0.3.9 (2026-10-23)
 
 On custodian_kit 0.3.10: what an intended change needs from the manifests, read once, before anything is changed. An
