@@ -1,5 +1,44 @@
 # Changelog
 
+## 0.3.9 (2026-10-23)
+
+On custodian_kit 0.3.10: what an intended change needs from the manifests, read once, before anything is changed. An
+agent integrating a multi-crate package failed on a dependency six times in a row, each error fixed alone and the
+next one found by the next build, a person running every build. Each of those was in the manifests before the first
+one. `custodian requirements` asks custodian_kit's `requirements` reading and keeps it as every reading is kept: a
+receipt, a dated page, reused while the manifests, the lock and the intent are the same. It never compiles and never
+writes a manifest, a lock or a source file. Nothing is removed from the API: the rustdoc JSON of 0.3.8 and 0.3.9
+differ by 143 additions (26 without the derived and blanket trait impls) and no removal. Every link is pinned to
+74aa195; the lines it replaces to bc351a9 (0.3.8).
+
+- **`custodian requirements [ROUTE] [--intent TEXT] [--spec FILE] [--faces WORDS] [--job JOB] [--again]`**
+  (`surface::Requirements`, [surface.rs L1340](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/surface.rs#L1340); `readings::requirements`, [readings.rs L210](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/readings.rs#L210)): the
+  route is `.` (every workspace under the root), `crate:<name>` or a directory; the intent's words and a change
+  spec's dependency and feature operations are the needs; the faces are custodian_kit's word, checked on the line
+  ([surface.rs L1424](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/surface.rs#L1424)). It is the search `run ROUTE --kind requirements` with those in its spec, so the one
+  same-search key finds either. A reading exits 0 with its findings on its page, so the journal can reuse it.
+- **No workspace is opened for a kind that reads no scan.** `read_spec` answers a sweep or a requirements reading at
+  the root through custodian_kit's `api::run_at` ([readings.rs L145-L150](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/readings.rs#L145-L150)); 0.3.8 opened the workspace for
+  every kind ([readings.rs L143 at 0.3.8](https://github.com/1o-llc/custodian/blob/bc351a9/src/readings.rs#L143)), and klepto's scan stops at a manifest cargo refuses, which is exactly
+  the state this reading is for.
+- **An MCP tool, from its declaration** ([mcp.rs L94](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/mcp.rs#L94)): the agent asks for the same report over MCP; the golden
+  tool list and the help screen are made again from the declarations.
+- **The agent brief carries what is unresolved** ([agent.rs L188](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/agent.rs#L188)): the newest requirements reading's unsatisfied
+  findings, and whether the manifests and the lock it read still hold the same bytes; with no job open, the line to run
+  is among the next ones ([agent.rs L239](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/src/agent.rs#L239)). A job's handoff carries them too (custodian_kit's). The README has a section for it, "Before a change: requirements".
+
+Proof: tests/requirements.rs on two fixtures (tests/fixtures/req_inherit, the `hex` case; tests/fixtures/req_add):
+`a_broken_manifest_is_read_without_a_scan_and_its_finding_names_the_root` ([L40](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/requirements.rs#L40)) (cases 1 and 9 at the line);
+`the_report_is_reused_until_a_manifest_or_the_lock_changes_and_the_workspace_is_never_written` ([L63](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/requirements.rs#L63)) (case 7: no
+file of the workspace written, reused, a source edit still reused, a manifest edit read again, the brief seeing it move);
+`a_change_spec_gives_the_needs_and_its_preflight_names_the_line` ([L88](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/requirements.rs#L88));
+`a_plan_folds_the_requirements_into_its_reuse_and_steps` ([L105](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/requirements.rs#L105)) (case 6 through `plan make`);
+`the_faces_word_is_checked_on_the_line` ([L120](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/requirements.rs#L120)); and tests/mcp.rs
+`the_requirements_report_over_mcp_is_the_one_the_handoff_carries` ([L170](https://github.com/1o-llc/custodian/blob/74aa1958947eabceddacb6689f581ef1c2a91865/tests/mcp.rs#L170)) (case 8: the page an agent gets
+over MCP is the page on disk, and the job's handoff carries the same unresolved lines). Case 10: every existing test
+passes unchanged, the bounded and unbounded ones in tests/modes.rs included; `cargo test --all-features` is 0 failed
+and `cargo clippy --all-targets --all-features -- -D warnings` is clean.
+
 ## 0.3.8 (2026-10-20)
 
 On custodian_kit 0.3.9: what last night's fleet_ops swaps cost, read from their receipts, each made to cost once. The

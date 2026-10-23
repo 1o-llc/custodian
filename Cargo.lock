@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.3.8"
+version = "0.3.9"
 dependencies = [
  "abut",
  "big-bad-bool",
@@ -650,7 +650,7 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.3.9"
+version = "0.3.10"
 dependencies = [
  "big-bad-bool",
  "bundles",
@@ -1482,9 +1482,9 @@ dependencies = [
 
 [[package]]
 name = "klepto"
-version = "0.3.4"
+version = "0.3.5"
 source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "fe0556275c3669549fe31757c3cb07912fc1e4a91e3ec1590ee59503e12d59ad"
+checksum = "ffb88ac1918c96bad205a25ad91a5c355590eb358b6098139569a33bf4ac875e"
 dependencies = [
  "blake3",
  "cargo_metadata",

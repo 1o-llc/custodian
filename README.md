@@ -146,6 +146,7 @@ custodian preflight config-digest      # then: custodian transform config-digest
 custodian handoff                      # after a job: what waits on a person, what it was for, what changed, what runs next
 custodian why crate:core_lib           # who introduced a route and for what, from the records and git
 custodian cost                         # the tokens readings stood for, read and saved by reuse
+custodian requirements crate:app --intent "add hex/serde to app"   # what a change needs from the manifests, read once
 ```
 
 A spec is a small TOML file:
@@ -191,10 +192,44 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `handoff [JOB] [--for james\|agent] [--since SEQ]` | the message a person reads after a job (the last closed one by default; with `--since`, every job that ran after that receipt), from the records only; exit 1 when something waits on a person |
 | `why ROUTE` | for a `crate:` or `decl:` route: the task histories whose changes touch it, the linkage records binding it, the readings about it, git's first and last commit touching its files |
 | `cost [--job ID] [--since SEQ]` | readings against reuses, the tokens they stood for against the tokens reuse saved, per reading kind and per job |
+| `requirements [ROUTE] [--intent TEXT] [--spec FILE] [--faces WORDS] [--job ID] [--again]` | what an intended change needs from the workspace as it is (custodian_kit's `requirements` reading): the manifests with no cargo, the needs against cargo metadata, Rust versions against the lock and the toolchain, the lock's duplicate versions; never compiles, never writes |
 
 `custodian` with no words prints these lines with their help, generated from the declarations
 (`tests/golden/help.txt` holds them). The 0.1.0 spellings `count [ROUTE]`, `test [--all]` and `plan INTENT` still
 read.
+
+## Before a change: requirements
+
+An agent that integrates a crate without reading the manifests first learns what is missing one cargo error at a
+time, and a person runs every build in between. `custodian requirements` reads the manifests once, before anything
+is changed, and says what the change needs and whether each is there:
+
+```text
+custodian requirements                                       # every workspace under the root, as it is
+custodian requirements crate:one_db_kernel --intent "add hex to one_db_kernel"
+custodian requirements --spec .custodian/data/specs/changes/add-hex.toml   # a change spec's dependency operations
+custodian requirements --faces prerequisites,no_cargo         # the manifests only: cargo is not run
+custodian run . --kind requirements                           # the same reading as a search on the run line
+```
+
+It is custodian_kit's `requirements` reading kind (its README says what each face reads and every check). The
+manifests are read as TOML with no cargo first: each crate's governing workspace root by cargo's own rule (a nested
+independent workspace is its own root), `workspace = true` against that root, path dependencies to the end of the
+chain, features in their four forms. Then cargo, where it can speak: `cargo metadata --frozen` (no lock written, no
+network) is the truth for the needs, the versions the lock holds and the features cargo turned on; each crate's
+rust-version and edition against what its lock demands and the toolchain installed; `cargo tree -d` for every package
+in more than one version, who forces each, how many compiles it costs, and the one requirement change that would
+leave one version when there is one. Every finding says whether it was observed, inferred or is unknown, and points
+at its manifest, line, section and field; the page ends with the order to make the steps in (required or
+recommended, never a version the reading did not read), the unknowns, and the provenance: every manifest's digest,
+the lock's, the lines it ran with their exits, and "mutation performed: none".
+
+It never compiles: whether the code builds is named as the next check, not claimed. It is a reading, kept and reused
+as every reading is (exit 0, its findings on its page), while the manifests, the lock, the toolchain files and the
+intent are the same; an edit to one of them is a new reading, an edit to a source file is not. It is not a gate: a
+preflight of a dependency or feature change names the line to run, `plan make` folds its findings into the plan's
+reuse and steps, `agent brief` and a job's `handoff` carry what it leaves unresolved, and an agent asks for it over
+MCP (`requirements`).
 
 ## After a job: handoff, why, cost
 
@@ -314,7 +349,8 @@ by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a searc
 `test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
 `diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
 `count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add`,
-`linkage_check`, `exercise_report`, `handoff` (its `reader` `agent` adds the lines to run), `why` and `cost`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,
+`linkage_check`, `exercise_report`, `handoff` (its `reader` `agent` adds the lines to run), `why`, `cost` and
+`requirements`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,
 `watch`, `self *`, `mcp serve` and `exercise run` are a person's and are never tools; `tests/golden/mcp_tools.json` is the list a host sees, and a new line fails the tests until it is
 declared one or the other in `src/mcp.rs`.
 
