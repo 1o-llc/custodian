@@ -183,6 +183,41 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
     }
     let lines = configured(ctx, lines, l, &mut ran)?;
     crate::budget::before_step(ctx, job.as_deref(), &format!("{} test line(s)", lines.len()), custodian_kit::step_time::TEST, lines.len())?;
+    run_lines(ctx, &lines, job, level, &mut ran)?;
+    Ok(ran)
+}
+
+/// Before a job's close: each declared `test:` verification no receipt of the job satisfies yet (the tests were run
+/// by plain cargo, or not at all) is run here, as `custodian test` runs a line, so the close decides on a receipt and
+/// never says `pending` for a test it could run. The line is the crate's whole test run: the crate a verification
+/// names, else each crate the job targets (`crate:<name>`), so `test:<module>::*` is every test of that module.
+pub fn verify_before_close(ctx: &mut Ctx, id: &str, folder: &std::path::Path, ran: &mut Ran) -> Result<()> {
+    let k = custodian_kit::runs::Ctx { root: ctx.root().to_path_buf(), store: custodian_kit::store::Store::find(ctx.root()), exe: std::env::current_exe().unwrap_or_default() };
+    let open: Vec<String> = custodian_kit::jobs::verifications(&k, id)?.into_iter().filter(|v| v.state == "not run" && v.line.starts_with("test:")).map(|v| v.line).collect();
+    if open.is_empty() {
+        return Ok(());
+    }
+    let crates: Vec<String> = custodian_kit::jobs::job_file(folder).routes.iter().filter_map(|r| r.strip_prefix("crate:")).map(|c| c.split('/').next().unwrap_or(c).to_string()).collect();
+    let mut packages: std::collections::BTreeSet<String> = std::collections::BTreeSet::new();
+    for v in &open {
+        let what = v.trim_start_matches("test:").trim();
+        match crates.iter().find(|c| c.replace('-', "_") == what.replace('-', "_")) {
+            Some(c) => {
+                packages.insert(c.clone());
+            }
+            None if crates.is_empty() && !what.contains("::") => {
+                packages.insert(what.to_string());
+            }
+            None => packages.extend(crates.iter().cloned()),
+        }
+    }
+    let lines: Vec<Line> = packages.into_iter().map(|package| Line { package, target: "all".into(), filters: Vec::new() }).collect();
+    ran.say(format!("the close runs {} itself: no receipt of the job satisfies it yet ({} test line(s))", open.join(", "), lines.len()));
+    run_lines(ctx, &lines, Some(id.to_string()), ObserveLevel::of_word("failed")?, ran)
+}
+
+/// The test lines run on the workspace's kept build, each with its receipt and its outcomes in the journal.
+fn run_lines(ctx: &mut Ctx, lines: &[Line], job: Option<String>, level: ObserveLevel, ran: &mut Ran) -> Result<()> {
     // the lines run on the workspace's one kept build: custodian_kit's proof place (the copy and the build the
     // transform's proof uses), never a cold build in the workspace
     let place = custodian_kit::proof_place::ProofPlace::take(ctx.root())?;
@@ -190,7 +225,7 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
     ran.say(format!("on the kept build: {} (the proof's place, synced)", place.target().display()));
     let mut obs = Observers::new(level);
     let (mut total_pass, mut total_fail) = (0, 0);
-    for line in &lines {
+    for line in lines {
         let cmd = cargo_line(&root, line);
         let mut ext = External::shell("cargo.test", &cmd).in_dir(&root);
         for (k, v) in place.env() {
@@ -247,7 +282,7 @@ pub fn test(ctx: &mut Ctx, l: &Test) -> Result<Ran> {
         }
     }
     ran.say(format!("ran {} cargo test line(s): {total_pass} passed, {total_fail} failed; results and times in the journal (custodian test report)", lines.len()));
-    Ok(ran)
+    Ok(())
 }
 
 /// `custodian test report`: the slowest lines, the flakiest tests, and maintenance's timed report when present.

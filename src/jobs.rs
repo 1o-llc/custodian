@@ -281,6 +281,8 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let mut ran = Ran::named(&id);
     ran.job = Some(id.clone());
     checkpoint(ctx, &id, &folder, "close", &mut ran)?;
+    // a declared test no receipt satisfies yet: the close runs it before it decides, never `pending` for it
+    crate::testing::verify_before_close(ctx, &id, &folder, &mut ran)?;
     let (closing, file, said) = {
         let k = kit(ctx);
         match runner_workspace(ctx)? {
@@ -301,6 +303,9 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     }
     ran.say(format!("closing receipt: {}", ctx.rel(&file)));
     ran.say(format!("result: {}{}", closing.result, closing.result_reason.as_ref().map(|r| format!(" ({r})")).unwrap_or_default()));
+    for b in &closing.verified_by {
+        ran.say(format!("verified by {b}"));
+    }
     ran.outputs = vec![ctx.rel(&file)];
     if let Some(r) = closing.refusal.clone() {
         // a bounded job with lines no transform covers: closed, its record terminal, and the line refused

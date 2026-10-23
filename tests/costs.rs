@@ -24,13 +24,13 @@ fn the_planned_cost_is_measured_or_unknown_and_the_closing_names_steps_paid_one_
     }
     // nothing ran here yet: every figure is unknown, never a guess
     let started = ok(&d, &["job", "start", "attrs", "--intent", "three attributes"], 0);
-    assert!(started.contains("planned cost: 3 preflights × unknown (none ran here yet), 1 compiles × unknown"), "{started}");
+    assert!(started.contains("1 proof preflights × unknown (none ran here yet)") && started.contains("2 batch preflights (per function) × unknown") && started.contains("1 proof compiles × unknown") && started.contains("1 batch compiles × unknown"), "{started}");
     // three preflights one by one: measured now, and the closing names them as paid one at a time
     for n in ["token", "socket", "env-or"] {
         ok(&d, &["preflight", n], 0);
     }
     let brief = ok(&d, &["agent", "brief"], 0);
-    assert!(brief.contains("## planned cost") && brief.contains("3 preflights × ") && brief.contains("s (measured)"), "{brief}");
+    assert!(brief.contains("## planned cost") && brief.contains("proof preflights × ") && brief.contains("s (measured)"), "{brief}");
     ok(&d, &["job", "close"], 0);
     let done = std::fs::read_dir(d.join(".custodian/state/jobs/done")).unwrap().flatten().next().unwrap().path();
     let closing: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(done.join("closing.json")).unwrap()).unwrap();
