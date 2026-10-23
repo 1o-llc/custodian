@@ -10,9 +10,14 @@ pub const BIN: &str = env!("CARGO_BIN_EXE_custodian");
 
 /// A fresh copy of the fixture workspace.
 pub fn fixture(name: &str) -> PathBuf {
+    fixture_of(name, "ws")
+}
+
+/// A fresh copy of the fixture `tests/fixtures/<which>`.
+pub fn fixture_of(name: &str, which: &str) -> PathBuf {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).unwrap().as_nanos();
     let dir = std::env::temp_dir().join("custodian-it").join(format!("{name}-{}-{nanos}", std::process::id()));
-    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures/ws"), &dir);
+    copy(&Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/fixtures").join(which), &dir);
     dir.canonicalize().unwrap()
 }
 

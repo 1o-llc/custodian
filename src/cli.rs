@@ -132,6 +132,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::Handoff(l) => crate::records::handoff(ctx, so(&l.job).as_deref(), so(&l.reader).as_deref(), so(&l.since).and_then(|v| v.parse().ok())),
         Line::Why(l) => crate::records::why(ctx, &s(&l.route)),
         Line::Cost(l) => crate::records::cost(ctx, so(&l.job).as_deref(), so(&l.since).and_then(|v| v.parse().ok())),
+        Line::Requirements(l) => readings::requirements(ctx, l),
     }
 }
 

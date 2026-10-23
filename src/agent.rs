@@ -180,6 +180,20 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
         if latest.is_empty() {
             s.push_str("none\n");
         }
+        // what the newest requirements reading leaves unresolved, and whether the manifests it read still hold
+        if let Some(r) = readings.iter().rfind(|r| r.kind == custodian_kit::api::ReadingKind::Requirements.as_str()) {
+            if let Some(req) = custodian_kit::reading::load(&ctx.root().join(&r.record)).ok().and_then(|rep| rep.requirements) {
+                let holds = if req.still_holds(ctx.root()) { "the manifests and the lock it read are unchanged" } else { "the manifests or the lock moved since: read again" };
+                let lines = req.unresolved_lines();
+                s.push_str(&format!("\n## unresolved requirements (reading #{} `{}`, {}; {holds})\n\n", r.seq, r.target, age(&r.stamp)));
+                if lines.is_empty() {
+                    s.push_str("none\n");
+                }
+                for l in &lines {
+                    s.push_str(&format!("- {l}\n"));
+                }
+            }
+        }
         let tests = journal.test_runs()?;
         let mut last: BTreeMap<(String, String), &crate::journal::TestRun> = BTreeMap::new();
         for t in &tests {
@@ -222,6 +236,7 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
             if journal.readings()?.is_empty() {
                 next.push("custodian plan make \"<what the task is for>\"   # where the work is, what it costs, what to decide first".into());
             }
+            next.push("custodian requirements [crate:<name>] --intent \"<what the change brings>\"   # before a dependency or a crate is integrated: what it needs from the manifests, read once".into());
             next.push("custodian job start <name> --intent \"<what for>\" --verify test:<name> [--mode bounded]".into());
         }
         Some(o) => {

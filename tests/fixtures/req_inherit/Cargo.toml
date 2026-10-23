@@ -1,0 +1,10 @@
+# one_db_kernel inherits `hex` from the workspace, and this root declares no `hex` (the brief's first failure)
+[workspace]
+members = ["crates/*"]
+resolver = "2"
+
+[workspace.package]
+edition = "2021"
+
+[workspace.dependencies]
+util = { path = "crates/util" }

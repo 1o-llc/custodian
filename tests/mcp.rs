@@ -163,3 +163,50 @@ async fn the_program_serves_on_its_stdio_and_a_resident_answers_its_lines() {
     ok(&d, &["stop"], 0);
     assert!(resident.wait().unwrap().success());
 }
+
+/// The brief's case 8: the requirements reading an agent asks for over MCP inside a job is the page on disk, and the
+/// job's handoff carries the same unresolved findings.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_requirements_report_over_mcp_is_the_one_the_handoff_carries() {
+    let d = fixture_of("mcp-req", "req_add");
+    ok(&d, &["agent", "init"], 0);
+    ok(&d, &["job", "start", "add-util", "--intent", "app uses util"], 0);
+    // the program over its stdio (a process of its own: this test process holds another server's journal writer)
+    let mut child = tokio::process::Command::new(BIN)
+        .args(["mcp", "serve", "--root"])
+        .arg(&d)
+        .current_dir(std::env::temp_dir())
+        .stdin(std::process::Stdio::piped())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .env_remove("XDG_RUNTIME_DIR")
+        .spawn()
+        .unwrap();
+    let (stdout, stdin) = (child.stdout.take().unwrap(), child.stdin.take().unwrap());
+    let client: Client = ().serve((stdout, stdin)).await.unwrap();
+    let tools = client.list_all_tools().await.unwrap();
+    let t = tools.iter().find(|t| t.name == "requirements").expect("the requirements tool");
+    assert_eq!(t.input_schema["properties"]["intent"]["type"], "string");
+
+    let (v, md) = parts(&call(&client, "requirements", json!({"intent": "add util/fmt to app"})).await.unwrap());
+    assert_eq!(v["code"], 0, "{v:#}");
+    let page = v["reading"]["path"].as_str().unwrap().to_string();
+    let on_disk = std::fs::read_to_string(d.join(&page)).unwrap();
+    assert_eq!(md.as_deref(), Some(on_disk.as_str()), "the page, inline");
+    assert!(on_disk.contains("## suggested operation order"), "{on_disk}");
+    let record = d.join(page.replace(".md", ".json"));
+    let report = custodian_kit::reading::load(&record).unwrap().requirements.expect("a requirements report");
+    let unresolved = report.unresolved_lines();
+    assert!(unresolved.iter().any(|l| l.contains("`app` does not declare `util`")), "{unresolved:#?}");
+    client.cancel().await.unwrap();
+    assert!(child.wait().await.unwrap().success());
+
+    let closed = run(&d, &["job", "close"]);
+    assert!(closed.code <= 1, "{}", closed.all());
+    let handoff = run(&d, &["handoff", "--for", "agent"]).out;
+    assert!(handoff.contains("## Unresolved requirements"), "{handoff}");
+    for l in unresolved.iter().take(5) {
+        assert!(handoff.contains(l.as_str()), "{l} in\n{handoff}");
+    }
+    assert!(handoff.contains("Read them again after a change: custodian requirements . --intent \"add util/fmt to app\" --again"), "{handoff}");
+}

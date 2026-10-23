@@ -55,6 +55,8 @@ pub fn resolve(ctx: &Ctx, target: Option<&str>, kind: Option<&str>) -> Result<(R
             (true, Some(f), Some(r)) if f.starts_with(&r) => f.strip_prefix(&r).map(|p| p.to_string_lossy().into_owned()).unwrap_or_else(|_| t.to_string()),
             _ => t.to_string(),
         };
+        // the root itself, named as a path, is the requirements reading's `.` (every workspace under it)
+        let t = if t.is_empty() && k == ReadingKind::Requirements.as_str() { ".".to_string() } else { t };
         return Ok((inline_spec(k, &t)?, From::Line));
     }
     let t = target.ok_or_else(|| Code::SpecNotFound.refuse("no spec named"))?;
@@ -139,19 +141,25 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
         }
     }
     let how = if ask.job.is_some() { Resolving::Job } else { Resolving::Free };
-    let mut reading = {
+    // a kind that reads no scan (a sweep, a requirements reading) is answered at the root: no workspace is opened
+    let scanned = spec.kind.needs_scan();
+    let mut reading = if scanned {
         let ws = ctx.workspace(&spec.scope, how)?;
         custodian_kit::api::run(ws, spec)?
+    } else {
+        custodian_kit::api::run_at(ctx.root(), how, spec)?
     };
     // where the index came from: the kit's (parsed, from cache), or the resident's held one; a kind that walks the
     // syntax trees says its own (it parses when the index came from the cache)
-    if !spec.kind.walks_trees() || !matches!(ctx.index, Some(custodian_kit::reading::facts::IndexSource::FromCache { .. })) {
+    if scanned && (!spec.kind.walks_trees() || !matches!(ctx.index, Some(custodian_kit::reading::facts::IndexSource::FromCache { .. }))) {
         if let Some(i) = &ctx.index {
             reading.report.index = Some(i.line());
         }
     }
     ran.index = reading.report.index.clone();
-    ran.say(format!("index: {}", reading.report.index.clone().unwrap_or_else(|| "-".into())));
+    if scanned {
+        ran.say(format!("index: {}", reading.report.index.clone().unwrap_or_else(|| "-".into())));
+    }
     let counts: Vec<String> = reading.counts().iter().map(|c| format!("{}: {}", c.what, c.n)).collect();
     match ctx.mode.project().map(|p| p.layout.clone()) {
         Some(layout) => {
@@ -193,6 +201,41 @@ pub fn read_spec(ctx: &mut Ctx, spec: &ReadingSpec, from: &From, ask: &Ask) -> R
         }
     }
     Ok((ran, Some(reading.report)))
+}
+
+/// `custodian requirements [ROUTE] [--intent TEXT] [--spec FILE] [--faces WORDS]`: what an intended change needs from
+/// the workspace as it is, as custodian_kit's `requirements` reading: a search on the line (`run ROUTE --kind
+/// requirements`) with the intent, the change spec's needs and the faces in its spec, so the one same-search key
+/// (the manifests, the lock, the toolchain files and those) reuses it until one of them changes.
+pub fn requirements(ctx: &mut Ctx, l: &crate::surface::Requirements) -> Result<Ran> {
+    let so = |v: &Option<std::ffi::OsString>| v.as_ref().map(|x| x.to_string_lossy().into_owned());
+    let job = ctx.current_job(so(&l.job))?;
+    let mut target = so(&l.route).unwrap_or_else(|| ".".into());
+    let change = match so(&l.spec) {
+        Some(f) => {
+            let file = std::env::current_dir().unwrap_or_default().join(&f);
+            let cs = custodian_kit::change::ChangeSpec::from_path(&file)?;
+            // the change spec's crate is the route when the line names none
+            if so(&l.route).is_none() && cs.target.starts_with("crate:") && cs.target != "crate:*" {
+                target = cs.target.split('/').next().unwrap_or(&cs.target).to_string();
+            }
+            Some((ctx.rel(&file.canonicalize().unwrap_or(file.clone())), cs))
+        }
+        None => None,
+    };
+    let (mut spec, from) = resolve(ctx, Some(&target), Some(ReadingKind::Requirements.as_str()))?;
+    spec.requirements.intent = so(&l.intent);
+    if let Some((rel, cs)) = change {
+        spec.requirements.needs = custodian_kit::reading::requirements::needs::of_change(&cs);
+        spec.requirements.change_spec = Some(rel);
+    }
+    if let Some(f) = so(&l.faces) {
+        spec.requirements.faces = f.split(',').map(|w| w.trim().to_string()).filter(|w| !w.is_empty()).collect();
+    }
+    spec.requirements.word()?;
+    let ask = Ask { again: l.again, job, word: String::new() };
+    let (ran, _) = read_spec(ctx, &spec, &from, &ask)?;
+    Ok(ran)
 }
 
 /// The folder of a running job.

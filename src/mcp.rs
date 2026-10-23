@@ -91,6 +91,7 @@ pub const TOOLS: &[ToolLine] = &[
     tool("handoff", "handoff", &[], "After a job: the message its records make, what waits on a person first; `reader` `agent` adds the lines to run."),
     tool("why", "why", &[], "Before changing a crate: why it is there, from the records."),
     tool("cost", "cost", &[], ""),
+    tool("requirements", "requirements", &[], "Before integrating a crate or changing a dependency: what the change needs from the manifests, the lock and the toolchain, read once, so cargo's errors do not arrive one at a time."),
 ];
 
 /// The lines that are a person's, never a tool, and why.

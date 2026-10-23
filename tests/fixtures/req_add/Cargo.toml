@@ -1,0 +1,4 @@
+# util is in the lock (lib uses it); app does not declare it; cli depends on app
+[workspace]
+members = ["app", "lib", "util", "cli"]
+resolver = "2"

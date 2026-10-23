@@ -179,6 +179,7 @@ macro_rules! leaf {
 #[composite(command = "handoff", ty = Handoff)]
 #[composite(command = "why", ty = Why, init = "route")]
 #[composite(command = "cost", ty = Cost)]
+#[composite(command = "requirements", ty = Requirements)]
 pub struct Custodian;
 
 /// `custodian agent init|brief|guard`.
@@ -1326,6 +1327,43 @@ leaf! {
     }
 }
 
+leaf! {
+    /// What an intended change needs from the workspace as it is (custodian_kit's `requirements` reading kind): the
+    /// manifests read with no cargo, then the intent's or the change spec's needs against cargo metadata, the Rust
+    /// versions against the lock and the toolchain, the packages the lock holds twice. It never compiles or writes.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "requirements")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct Requirements {
+        /// The route: `.` (every workspace under the root, the default), `crate:<name>`, or a directory.
+        #[builder(into)]
+        #[arg(positional, each = plain)]
+        pub route: Option<OsString>,
+        /// What the change is for: the crate it lands in and the packages it brings are read from the words.
+        #[builder(into)]
+        #[arg(kv = "--intent", each = nonempty)]
+        pub intent: Option<OsString>,
+        /// A change spec whose add_dependency, change_dependency or declare_feature operations are the needs.
+        #[builder(into)]
+        #[arg(kv = "--spec", each = nonempty)]
+        pub spec: Option<OsString>,
+        /// The faces read, comma-separated: prerequisites, rust, lock, no_cargo (every face by default).
+        #[builder(into)]
+        #[arg(kv = "--faces", each = faces_words)]
+        pub faces: Option<OsString>,
+        /// The job the reading is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+        /// Read again even when the same manifests, lock and intent were read.
+        #[arg(flag = "--again")]
+        pub again: bool,
+    }
+}
+
 // ---- the words each field takes ----
 
 fn refuse(field: &str, msg: String) -> CommandValidationResult {
@@ -1381,6 +1419,10 @@ fn each_of(field: &str, word: &OsStr, words: &[&str]) -> CommandValidationResult
 
 fn ops_words(field: &str, word: &OsStr) -> CommandValidationResult {
     each_of(field, word, &custodian_kit::change::Operation::ALL.iter().map(|o| o.as_str()).collect::<Vec<_>>())
+}
+
+fn faces_words(field: &str, word: &OsStr) -> CommandValidationResult {
+    each_of(field, word, &custodian_kit::reading::requirements::FacesWord::all_names())
 }
 
 fn unit_words(field: &str, word: &OsStr) -> CommandValidationResult {
@@ -1638,6 +1680,7 @@ lines! {
     Handoff(Handoff) = ["handoff"] in root => read_handoff;
     Why(Why) = ["why"] in root => read_why;
     Cost(Cost) = ["cost"] in root => read_cost;
+    Requirements(Requirements) = ["requirements"] in root => read_requirements;
 }
 
 /// The usage screen's lines: the root's help lines, generated from the declarations.
@@ -1927,6 +1970,10 @@ fn read_why(w: &mut Words) -> Result<Why> {
     Ok(Why { route: need(w, "route (crate:<name> or decl:<name>)", "why")? })
 }
 
+fn read_requirements(w: &mut Words) -> Result<Requirements> {
+    Ok(Requirements { intent: kv(w, "--intent")?, spec: kv(w, "--spec")?, faces: kv(w, "--faces")?, job: kv(w, "--job")?, again: w.flag("--again"), route: pos(w) })
+}
+
 fn read_cost(w: &mut Words) -> Result<Cost> {
     Ok(Cost { job: kv(w, "--job")?, since: kv(w, "--since")? })
 }
@@ -2011,6 +2058,8 @@ mod tests {
             Custodian::why("crate:core_lib").argv(),
             Custodian::cost().job("j-1").since("4").argv(),
             Custodian::cost().argv(),
+            Custodian::requirements().route("crate:core_lib").intent("add_hex_to_core_lib").spec("add-hex.toml").faces("prerequisites,rust").job("j-6").again().argv(),
+            Custodian::requirements().argv(),
         ];
         let mut paths: Vec<String> = lines.iter().map(|l| read(l).unwrap_or_else(|e| panic!("{l:?}: {e}")).path().to_string()).collect();
         paths.sort();

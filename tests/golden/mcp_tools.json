@@ -49,7 +49,8 @@
             "sweep",
             "impact",
             "linkage",
-            "patterns"
+            "patterns",
+            "requirements"
           ],
           "type": "string"
         },
@@ -832,6 +833,40 @@
         },
         "since": {
           "description": "Only the runs after this receipt. (`--since`)",
+          "type": "string"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "requirements",
+    "description": "Runs `custodian requirements`, a declared line; every run leaves a receipt. Before integrating a crate or changing a dependency: what the change needs from the manifests, the lock and the toolchain, read once, so cargo's errors do not arrive one at a time.\n\nWhat an intended change needs from the workspace as it is (custodian_kit's `requirements` reading kind): the manifests read with no cargo, then the intent's or the change spec's needs against cargo metadata, the Rust versions against the lock and the toolchain, the packages the lock holds twice. It never compiles or writes.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "again": {
+          "description": "Read again even when the same manifests, lock and intent were read. (`--again`)",
+          "type": "boolean"
+        },
+        "faces": {
+          "description": "The faces read, comma-separated: prerequisites, rust, lock, no_cargo (every face by default). (`--faces`)",
+          "type": "string"
+        },
+        "intent": {
+          "description": "What the change is for: the crate it lands in and the packages it brings are read from the words. (`--intent`)",
+          "type": "string"
+        },
+        "job": {
+          "description": "The job the reading is part of (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "route": {
+          "description": "The route: `.` (every workspace under the root, the default), `crate:<name>`, or a directory. (a word on the line)",
+          "type": "string"
+        },
+        "spec": {
+          "description": "A change spec whose add_dependency, change_dependency or declare_feature operations are the needs. (`--spec`)",
           "type": "string"
         }
       },

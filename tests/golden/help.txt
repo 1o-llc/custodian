@@ -55,6 +55,8 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian handoff [JOB] [--for READER] [--since SINCE]                    The message a person reads after a job, from the records only: what waits on a person first, then what the job was for, what changed, what was decided and by whom, what was verified, and what runs next; short, every list cut with "… and N more"
   custodian why ROUTE                                                       Who introduced a crate: or decl: route and for what: the task histories whose changes touch it, the linkage records binding it, the readings about it, and git's first and last commit touching its files (a git log line with its receipt); "no record" where the records say nothing
   custodian cost [--job JOB] [--since SINCE]                                The tokens readings stood for: read against reused, the tokens an agent would have spent reading the same files by hand against the tokens reuse saved, per reading kind and per job (an estimate: bytes/4 of the files each reading touched)
+  custodian requirements [ROUTE] [--intent INTENT] [--spec SPEC] [--faces FACES] [--job JOB] [--again]
+                                                                            What an intended change needs from the workspace as it is (custodian_kit's `requirements` reading kind): the manifests read with no cargo, then the intent's or the change spec's needs against cargo metadata, the Rust versions against the lock and the toolchain, the packages the lock holds twice
 
 exit status: 0 done, 1 findings, 2 refused. Inside an initialized folder (.custodian here or above) every run is journaled; elsewhere it is free mode and nothing is stored.
 
