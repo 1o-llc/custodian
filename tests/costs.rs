@@ -1,7 +1,8 @@
 // Copyright © 2026 1o. All rights reserved.
 
 //! custodian reads its own cost: the planned cost at `job start` and in the brief (each figure measured from this
-//! workspace's receipts, or unknown), a step past the job's hours budget refused before it starts, and the closing
+//! workspace's receipts, or unknown), a job past its hours budget running and closing as any other (the hours are
+//! information), and the closing
 //! receipt's time per step kind with the kinds paid one member at a time named.
 
 mod common;
@@ -42,22 +43,27 @@ fn the_planned_cost_is_measured_or_unknown_and_the_closing_names_steps_paid_one_
 }
 
 #[test]
-fn a_step_past_the_hours_budget_is_refused_before_it_starts_and_the_job_stays_open() {
+fn a_job_past_its_hours_budget_runs_its_change_steps_and_tests_and_closes_accepted() {
+    let bin = passenger_with_transform();
+    let b = bin.as_deref();
     let d = fixture("budget");
-    ok(&d, &["agent", "init"], 0);
+    ok_with(&d, &["agent", "init"], b, 0);
     change_spec(&d, "token", "core_lib::token");
     change_spec(&d, "socket", "core_lib::socket");
-    let started = ok(&d, &["job", "start", "tight", "--intent", "i", "--budget", "hours=0.000001,battery=20"], 0);
-    assert!(started.contains("budget: hours=0.000001,battery=20"), "{started}");
-    // the first preflight has no measured time here: nothing to refuse on
-    ok(&d, &["preflight", "token"], 0);
-    // now a preflight is measured, and one more would pass the budget
-    let r = run(&d, &["preflight", "socket"]);
-    assert_ne!(r.code, 0);
-    assert!(r.all().contains("[CUST0043]") && r.all().contains("is measured at"), "{}", r.all());
-    assert!(ok(&d, &["job", "list"], 0).contains("running"), "the job stays open");
-    // a budget that is not one is refused at start
-    ok(&d, &["job", "close"], 0);
+    let started = ok_with(&d, &["job", "start", "tight", "--intent", "i", "--verify", "test:core_lib", "--budget", "hours=0.000001,battery=20"], b, 0);
+    assert!(started.contains("budget: hours=0.000001,battery=20") && started.contains("only the battery stops a step"), "{started}");
+    // far past its hours: every change step still runs (nothing is refused by hours)
+    ok_with(&d, &["preflight", "token"], b, 0);
+    ok_with(&d, &["preflight", "socket"], b, 0);
+    if b.is_some() {
+        ok_with(&d, &["transform", "token", "--write"], b, 0);
+    }
+    let brief = ok_with(&d, &["agent", "brief"], b, 0);
+    assert!(brief.contains("over the budget by") && brief.contains("nothing is refused by hours"), "{brief}");
+    ok_with(&d, &["test", "run", "--all"], b, 0);
+    let closed = ok_with(&d, &["job", "close"], b, 0);
+    assert!(closed.contains("result: accepted") && closed.contains("time: over the budget by"), "{closed}");
+    // a budget that is not one is still refused at start
     let r = run(&d, &["job", "start", "bad", "--intent", "i", "--budget", "days=2"]);
     assert_ne!(r.code, 0);
     assert!(r.all().contains("[CUST0043]"), "{}", r.all());

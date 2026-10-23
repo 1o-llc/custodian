@@ -247,7 +247,7 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
     }
     if let Some(store) = custodian_kit::store::Store::find(ctx.root()) {
         if let Some(b) = custodian_kit::step_time::budget_of(&store, &custodian_kit::jobs::job_file(&started.folder))? {
-            ran.say(format!("budget: {} (a step whose measured time would pass it is refused before it starts)", b.word()));
+            ran.say(format!("budget: {} (information: the brief and the closing receipt say how far past its hours the job is; only the battery stops a step)", b.word()));
         }
     }
     ran.say(format!("job {} is open: readings run now are tagged with it; custodian job close {} writes the closing receipt", started.id, started.id));
@@ -303,6 +303,9 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     }
     ran.say(format!("closing receipt: {}", ctx.rel(&file)));
     ran.say(format!("result: {}{}", closing.result, closing.result_reason.as_ref().map(|r| format!(" ({r})")).unwrap_or_default()));
+    if let Some(o) = &closing.over_budget {
+        ran.say(format!("time: {o}"));
+    }
     for b in &closing.verified_by {
         ran.say(format!("verified by {b}"));
     }

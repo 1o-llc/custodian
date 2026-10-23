@@ -646,6 +646,8 @@
             "inline",
             "wrap",
             "make_lib",
+            "remove_dependency",
+            "rename_paths",
             "declare_feature"
           ],
           "type": "string"

@@ -2,8 +2,9 @@
 
 //! What a job will cost before it runs, and its budget: custodian_kit's `step_time` over this workspace's receipts.
 //! `job start`, `agent brief` and the handoff say the planned cost (each figure measured here, or unknown); a job's
-//! `--budget hours=<n>,battery=<percent>` (else the workspace's `.custodian/config/budget.toml`) refuses a step whose
-//! measured time would take the job past its hours, before it starts, and sets the battery floor its cargo lines keep.
+//! `--budget hours=<n>,battery=<percent>` (else the workspace's `.custodian/config/budget.toml`) sets the battery floor
+//! its cargo lines keep; its hours are information (the brief and the closing receipt say how far past them a job is),
+//! never a refusal.
 
 use crate::codes::Result;
 use crate::facade::Ctx;
@@ -28,10 +29,10 @@ pub fn planned_line(ctx: &Ctx) -> Result<Option<String>> {
     Ok(Some(step_time::estimate(&step_time::times(&receipts), &planned).line()))
 }
 
-/// Before a step of `kind` covering `members` starts in `job`: its budget read (the job file's, else the
-/// workspace's), its battery floor set for the lines it starts, and the step refused when its measured time would
-/// take the job past its hours. A step with no measured time here is not refused (nothing to refuse on).
-pub fn before_step(ctx: &Ctx, job: Option<&str>, step: &str, kind: &str, members: usize) -> Result<()> {
+/// Before a step starts in `job`: its budget read (the job file's, else the workspace's) and its battery floor set for
+/// the lines it starts. Nothing is refused by hours (James, 2026-10-23: the cost is information); the battery rule is
+/// the one that stops a step, in custodian_kit's `power` before each cargo line.
+pub fn before_step(ctx: &Ctx, job: Option<&str>, _step: &str, _kind: &str, _members: usize) -> Result<()> {
     let (Some(job), Some(store)) = (job, custodian_kit::store::Store::find(ctx.root())) else { return Ok(()) };
     let Some(folder) = crate::readings::job_folder(ctx, job)? else { return Ok(()) };
     let jf = custodian_kit::jobs::job_file(&folder);
@@ -39,15 +40,15 @@ pub fn before_step(ctx: &Ctx, job: Option<&str>, step: &str, kind: &str, members
     if let Some(p) = budget.battery {
         std::env::set_var(custodian_kit::power::BATTERY_MIN_ENV, p.to_string());
     }
-    // the job's own verification (its tests, its close) is never refused: a job past its budget still verifies and
-    // closes; the hours refuse only a new change step
-    if !step_time::is_change_step(kind) {
-        return Ok(());
-    }
-    let journal = ctx.journal()?;
-    let times = step_time::times(&journal.receipts()?);
-    let t = times.iter().find(|t| t.kind == kind);
-    let each = if kind == step_time::PREFLIGHT { t.and_then(step_time::StepTime::per_member) } else { t.and_then(step_time::StepTime::per_run) };
-    let spent = step_time::spent(&journal.receipts_of_job(job)?);
-    Ok(step_time::over_budget(&budget, spent, step, each.map(|e| e * members.max(1) as i64))?)
+    Ok(())
+}
+
+/// How far past its budget's hours the running job is, when it is (`over the budget by 12.0 min (...)`): what the
+/// brief says, never a refusal.
+pub fn over_line(ctx: &Ctx) -> Result<Option<String>> {
+    let (Some(store), Some(journal)) = (custodian_kit::store::Store::find(ctx.root()), ctx.journal.as_ref()) else { return Ok(None) };
+    let Some(job) = ctx.current_job(None).ok().flatten() else { return Ok(None) };
+    let Some(folder) = crate::readings::job_folder(ctx, &job)? else { return Ok(None) };
+    let Some(budget) = step_time::budget_of(&store, &custodian_kit::jobs::job_file(&folder))? else { return Ok(None) };
+    Ok(step_time::over_by(&budget, step_time::spent(&journal.receipts_of_job(&job)?)))
 }

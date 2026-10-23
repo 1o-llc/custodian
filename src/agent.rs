@@ -151,6 +151,9 @@ pub fn brief(ctx: &mut Ctx, head: bool) -> Result<Ran> {
         if let Some(p) = crate::budget::planned_line(ctx)? {
             s.push_str(&format!("\n## planned cost\n\n{p}\n"));
         }
+        if let Some(o) = crate::budget::over_line(ctx)? {
+            s.push_str(&format!("\n{o} (information: nothing is refused by hours)\n"));
+        }
         // the latest reading of each spec, and whether the code moved since
         let readings = journal.readings()?;
         let mut latest: BTreeMap<&str, &crate::journal::ReadingRow> = BTreeMap::new();
