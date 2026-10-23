@@ -266,3 +266,19 @@ fn receipts_merge_makes_two_checkouts_one_history_by_union() {
     let again = ok(&a, &["receipts", "merge", other.to_str().unwrap()], 0);
     assert!(again.contains(" 0 kept here under new numbers"), "{again}");
 }
+
+/// `custodian test run` keeps every test's time (libtest's `--report-time`) in the journal and in maintenance's
+/// timings, so `annotate` plans one `#[timed_test]` per test.
+#[test]
+fn a_test_run_keeps_each_tests_time_and_annotate_plans_one_insert_per_test() {
+    let d = fixture("timed");
+    ok(&d, &["agent", "init"], 0);
+    ok(&d, &["test", "run", "--all"], 0);
+    let conn = rusqlite::Connection::open(d.join(".custodian/state/journal.sqlite")).unwrap();
+    let (all, timed): (i64, i64) = conn.query_row("SELECT COUNT(*), COUNT(millis) FROM tests WHERE outcome = 'ok'", [], |r| Ok((r.get(0)?, r.get(1)?))).unwrap();
+    assert!(all > 0 && timed == all, "{timed} of {all} passed tests carry a time");
+    let rep = maintenance::timed::report(&d).unwrap();
+    assert_eq!(rep.tests.len() as i64, all, "one timing record per passed test");
+    let plan = custodian_kit::annotate::plan(&d, &custodian_kit::annotate::AnnotateRule::parse(custodian_kit::annotate::SHIPPED_ANNOTATE).unwrap(), None).unwrap();
+    assert_eq!(plan.inserts.len() as i64, all, "{:?}", plan.inserts);
+}

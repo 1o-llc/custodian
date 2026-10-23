@@ -51,12 +51,16 @@ pub fn cargo_line(root: &std::path::Path, l: &Line) -> CargoBuilder {
             None => c = c.args(&["--test", t]),
         },
     }
+    // every test says its own time (custodian_kit's `testrun::REPORT_TIME`, under its `REPORT_TIME_ENV`)
+    c = c.arg("--");
+    for f in &l.filters {
+        c = c.arg(f.clone());
+    }
     if !l.filters.is_empty() {
-        c = c.arg("--");
-        for f in &l.filters {
-            c = c.arg(f.clone());
-        }
         c = c.arg("--exact");
+    }
+    for w in custodian_kit::testrun::REPORT_TIME {
+        c = c.arg(*w);
     }
     c
 }
@@ -227,15 +231,19 @@ fn run_lines(ctx: &mut Ctx, lines: &[Line], job: Option<String>, level: ObserveL
     let (mut total_pass, mut total_fail) = (0, 0);
     for line in lines {
         let cmd = cargo_line(&root, line);
-        let mut ext = External::shell("cargo.test", &cmd).in_dir(&root);
+        let mut ext = External::shell("cargo.test", &cmd).in_dir(&root).env(custodian_kit::testrun::REPORT_TIME_ENV.0, custodian_kit::testrun::REPORT_TIME_ENV.1);
         for (k, v) in place.env() {
             ext = ext.env(&k, v);
         }
         let mut results: Vec<(String, String)> = Vec::new();
+        let mut timed: Vec<(String, String, Option<u64>)> = Vec::new();
         let names = ExternalNames { name: format!("{} {}", line.package, line.target), job: job.clone(), outputs: Vec::new() };
         // the live lines go where the run's own do; held aside while the line runs
         let mut live = std::mem::replace(&mut ctx.live, Box::new(|_| {}));
         let run = facade::run_external(ctx, ext, names, |out: &str| {
+            if let Some(t) = custodian_kit::testrun::timed_outcome(out) {
+                timed.push(t);
+            }
             if let Some((name, outcome)) = outcome_of(out) {
                 results.push((name.clone(), outcome.clone()));
                 for s in obs.publish(RunEvent::Test { name, outcome }) {
@@ -253,10 +261,18 @@ fn run_lines(ctx: &mut Ctx, lines: &[Line], job: Option<String>, level: ObserveL
         let t = TestRun { seq: run.receipt.seq, job: job.clone(), package: line.package.clone(), target: line.target.clone(), line: run.receipt.line.clone(), exit_code: run.code, millis: run.millis, passed, failed, ignored };
         if let Some(j) = ctx.journal.as_ref() {
             // each outcome in cargo's words (`ok`, `FAILED`, `ignored`), as custodian_kit's tests table keeps them
-            j.test_run(&t, &results)?;
+            j.test_run_timed(&t, &timed)?;
             j.event("test", job.as_deref(), &format!("{} {}", line.package, line.target), "counts", &format!("{passed},{failed},{ignored}"), Some(run.receipt.seq))?;
             for (n, _) in results.iter().filter(|(_, o)| o == "FAILED") {
                 j.event("test", job.as_deref(), n, "FAILED", &line.package, Some(run.receipt.seq))?;
+            }
+        }
+        // each test's time in maintenance's timings, so `annotate` places a #[timed_test] for it
+        if let Some(dir) = package_dir(ctx.root(), &line.package) {
+            let at = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_millis() as u64).unwrap_or(0);
+            let records = custodian_kit::testrun::timing_records(ctx.root(), &dir, &timed, at);
+            if let Some(f) = custodian_kit::testrun::write_timings(ctx.root(), &format!("custodian-{}", run.receipt.seq), &records)? {
+                ran.say(format!("{} test times in {}", records.len(), ctx.rel(&f)));
             }
         }
         for s in obs.publish(RunEvent::Counts { line: format!("{} {}", line.package, line.target), passed: passed as u64, failed: failed as u64, ignored: ignored as u64 }) {
@@ -341,6 +357,27 @@ pub fn report(ctx: &mut Ctx) -> Result<Ran> {
     Ok(ran)
 }
 
+/// The folder of the workspace package `package` under `root` (its manifest's `[package] name`).
+pub fn package_dir(root: &std::path::Path, package: &str) -> Option<std::path::PathBuf> {
+    let want = package.replace('-', "_");
+    let mut stack = vec![root.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        if let Some(name) = std::fs::read_to_string(d.join("Cargo.toml")).ok().and_then(|t| t.parse::<toml::Table>().ok()).and_then(|t| t.get("package")?.get("name")?.as_str().map(str::to_string)) {
+            if name.replace('-', "_") == want {
+                return Some(d);
+            }
+        }
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let n = e.file_name();
+            let n = n.to_string_lossy();
+            if e.path().is_dir() && !n.starts_with('.') && n != "target" {
+                stack.push(e.path());
+            }
+        }
+    }
+    None
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -350,11 +387,11 @@ mod tests {
     fn cargo_lines_are_xccute_commands_lines() {
         let root = std::path::Path::new("/w");
         let l = Line { package: "core_lib".into(), target: "lib+bins".into(), filters: vec!["tests::a".into(), "tests::b".into()] };
-        assert_eq!(cargo_line(root, &l).build(), "cargo test --lib --package core_lib --manifest-path /w/Cargo.toml --bins -- tests::a tests::b --exact");
+        assert_eq!(cargo_line(root, &l).build(), "cargo test --lib --package core_lib --manifest-path /w/Cargo.toml --bins -- tests::a tests::b --exact -Z unstable-options --report-time");
         let t = Line { package: "core_lib".into(), target: "test:metrics".into(), filters: vec!["metrics_say_where".into()] };
-        assert_eq!(cargo_line(root, &t).build(), "cargo test --package core_lib --manifest-path /w/Cargo.toml --test metrics -- metrics_say_where --exact");
+        assert_eq!(cargo_line(root, &t).build(), "cargo test --package core_lib --manifest-path /w/Cargo.toml --test metrics -- metrics_say_where --exact -Z unstable-options --report-time");
         let b = Line { package: "app".into(), target: "lib".into(), filters: vec![] };
-        assert_eq!(cargo_line(root, &b).build(), "cargo test --lib --package app --manifest-path /w/Cargo.toml");
+        assert_eq!(cargo_line(root, &b).build(), "cargo test --lib --package app --manifest-path /w/Cargo.toml -- -Z unstable-options --report-time");
         assert_eq!(outcome_of("test tests::a ... ok"), Some(("tests::a".into(), "ok".into())));
         assert_eq!(outcome_of("test result: ok. 2 passed"), None);
     }

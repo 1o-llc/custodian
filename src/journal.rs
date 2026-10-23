@@ -358,6 +358,15 @@ impl Journal {
         Ok(())
     }
 
+    /// [`Journal::test_run`] with each test's time (libtest's `--report-time`), kept in the tests table's `millis`.
+    pub fn test_run_timed(&self, t: &TestRun, results: &[(String, String, Option<u64>)]) -> Result<()> {
+        self.test_run(t, &[])?;
+        for (test, outcome, ms) in results {
+            self.conn().execute("INSERT INTO tests (seq, package, target, test, outcome, millis) VALUES (?1, ?2, ?3, ?4, ?5, ?6)", params![t.seq, t.package, t.target, test, outcome, ms.map(|m| m as i64)]).map_err(jerr)?;
+        }
+        Ok(())
+    }
+
     pub fn test_runs(&self) -> Result<Vec<TestRun>> {
         self.rows("SELECT * FROM test_runs ORDER BY seq", [], test_run_of)
     }
