@@ -277,7 +277,17 @@ pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
 }
 
 fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
-    let (id, folder) = running(ctx, which)?;
+    let (id, folder) = match running(ctx, which) {
+        Ok(r) => r,
+        // a done job whose close was refused is closed again over its receipts (the handoff's line for it)
+        Err(e) => match which.and_then(|w| kit(ctx).store().ok().and_then(|s| custodian_kit::jobs::reopen_rejected(s, w))) {
+            Some(reopened) => {
+                reopened?;
+                running(ctx, which)?
+            }
+            None => return Err(e),
+        },
+    };
     let mut ran = Ran::named(&id);
     ran.job = Some(id.clone());
     checkpoint(ctx, &id, &folder, "close", &mut ran)?;

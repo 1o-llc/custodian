@@ -187,10 +187,15 @@ impl Ctx {
         p.strip_prefix(self.root()).unwrap_or(p).to_string_lossy().into_owned()
     }
 
-    /// The job a run is part of: the one it names, else the one running (agent mode).
+    /// The job a run is part of: the one it names, else the one running (agent mode). A job named by its name
+    /// (`--job toolkit-workspace`) is its id (`job-…`), the newest of that name, so its receipts carry the id its close
+    /// reads them by.
     pub fn current_job(&self, named: Option<String>) -> Result<Option<String>> {
-        if named.is_some() {
-            return Ok(named);
+        if let Some(n) = named {
+            return Ok(Some(match &self.journal {
+                Some(j) => j.job(&n)?.map_or(n, |row| row.id),
+                None => n,
+            }));
         }
         match (&self.journal, self.mode.project()) {
             (Some(j), Some(p)) if p.agent() => Ok(j.jobs_in("running")?.into_iter().next().map(|r| r.id)),

@@ -277,23 +277,18 @@ pub fn transform_batch_with(ctx: &mut Ctx, list: &str, after_proof: Option<&str>
     if !run.stderr.trim().is_empty() {
         ran.say(run.stderr.lines().filter(|l| !l.starts_with("code-passenger:")).collect::<Vec<_>>().join("\n"));
     }
-    // one transform receipt per member, its record its output: the job's close covers each member's lines
+    // one transform receipt per member the batch wrote, its record its output: the job's close covers each member's
+    // lines. A member proved and not written (a dry batch, or a batch not proved) has its record in the batch's
+    // folder and no receipt of its own: the batch's one receipt stands for it
     let mut outputs = vec![ctx.rel(&list_file)];
     for (name, _, _) in &members {
         let file = dir.join(format!("{name}.json"));
         let Some(rec) = std::fs::read_to_string(&file).ok().and_then(|t| serde_json::from_str::<custodian_kit::transform::TransformRecord>(&t).ok()) else { continue };
-        let mut r = run.receipt.clone();
-        r.seq = 0;
-        r.command = "transform".into();
-        r.name = format!("{name} ({label} #{})", run.receipt.seq);
-        r.outputs = vec![ctx.rel(&file)];
-        r.accepted = rec.written && rec.proved() || (!write && rec.proved());
-        r.reason = if r.accepted { "done".into() } else { "not proved: left out of the batch".into() };
-        r.receipt_digest = custodian_kit::digest::of_value(&(&run.receipt.receipt_digest, name, &rec.files));
+        outputs.push(ctx.rel(&file));
+        let Some(mut r) = member_receipt(&run.receipt, &label, name, ctx.rel(&file), &rec) else { continue };
         if let Some(f) = ctx.keep(&mut r)? {
             ran.say(format!("{name}: receipt #{} ({})", r.seq, f.display()));
         }
-        outputs.push(ctx.rel(&file));
     }
     ran.outputs = outputs;
     ran.code = match run.code {
@@ -302,6 +297,23 @@ pub fn transform_batch_with(ctx: &mut Ctx, list: &str, after_proof: Option<&str>
         _ => 1,
     };
     Ok(ran)
+}
+
+/// A batch member's own `transform` receipt, its record its output: only for a member the batch wrote (a member
+/// proved and not written has its record in the batch's folder, and the batch's one receipt stands for it).
+fn member_receipt(batch: &custodian_kit::store::Receipt, label: &str, name: &str, record: String, rec: &custodian_kit::transform::TransformRecord) -> Option<custodian_kit::store::Receipt> {
+    if !rec.written {
+        return None;
+    }
+    let mut r = batch.clone();
+    r.seq = 0;
+    r.command = "transform".into();
+    r.name = format!("{name} ({label} #{})", batch.seq);
+    r.outputs = vec![record];
+    r.accepted = rec.proved();
+    r.reason = if r.accepted { "done".into() } else { "written, not proved".into() };
+    r.receipt_digest = custodian_kit::digest::of_value(&(&batch.receipt_digest, name, &rec.files));
+    Some(r)
 }
 
 /// The plan's name from its intent's first words.
@@ -447,3 +459,20 @@ pub fn revert_record(root: &std::path::Path, record: &str) -> std::path::PathBuf
     let name = if p.is_dir() { p.file_name() } else { p.file_stem() }.map(|n| n.to_string_lossy().into_owned()).unwrap_or_default();
     p.with_file_name(format!("{name}.revert.json"))
 }
+
+#[cfg(test)]
+mod member_receipt_tests {
+    use super::*;
+
+    #[test]
+    fn a_batch_writes_a_receipt_for_a_member_only_when_it_wrote_it() {
+        let rec = |written: bool| -> custodian_kit::transform::TransformRecord {
+            serde_json::from_value(serde_json::json!({"schema": "custodian.transform.v1", "spec_name": "m", "spec": "m.toml", "spec_digest": "d", "operation": "replace_body", "target": "c::f", "files": [], "checks": [], "postconditions": [], "written": written})).unwrap()
+        };
+        let batch: custodian_kit::store::Receipt = serde_json::from_value(serde_json::json!({"schema": "custodian.receipt.v1", "seq": 7, "utc": "u", "command": "code-passenger.transform-batch", "name": "batch of 2", "plan_id": "p", "plan_digest": "d", "operation_digest": "d", "receipt_digest": "r", "line": "l", "exit_code": 0, "accepted": true, "disposition": "Continue", "reason": "x", "outputs": [], "job": "job-1", "millis": 0, "runner": "line"})).unwrap();
+        let r = member_receipt(&batch, "batch of 2", "m", "rec/m.json".into(), &rec(true)).unwrap();
+        assert_eq!((r.command.as_str(), r.accepted, r.outputs.as_slice(), r.job.as_deref()), ("transform", true, &["rec/m.json".to_string()][..], Some("job-1")));
+        assert!(member_receipt(&batch, "batch of 2", "m", "rec/m.json".into(), &rec(false)).is_none(), "a dry member: the batch's one receipt");
+    }
+}
+
