@@ -922,7 +922,7 @@ leaf! {
 }
 
 leaf! {
-    /// Installs custodian through the installation crate: a plan, the install from it, its receipt in the journal.
+    /// Installs custodian through the installation crate: a plan, the install from it, its receipt in the journal, and the agent skill beside the receipt.
     #[allow(clippy::duplicated_attributes)]
     #[derive(SimpleSubCommand, Debug, Clone, Default)]
     #[subcommand(segment = "install")]
@@ -942,6 +942,10 @@ leaf! {
         #[arg(kv = "--state-dir")]
         #[requires("bin_dir")]
         pub state_dir: Option<OsString>,
+        /// Where the agent skill (SKILL.md) is written: beside the install receipt by default.
+        #[builder(into)]
+        #[arg(kv = "--skill-dir")]
+        pub skill_dir: Option<OsString>,
         #[arg(flag = "--dry-run")]
         pub dry_run: bool,
         #[arg(flag = "--force")]
@@ -972,7 +976,7 @@ leaf! {
 }
 
 leaf! {
-    /// What is installed, from its receipt.
+    /// What is installed, from its receipt, and where the agent skill is.
     #[allow(clippy::duplicated_attributes)]
     #[derive(SimpleSubCommand, Debug, Clone, Default)]
     #[subcommand(segment = "status")]
@@ -988,6 +992,10 @@ leaf! {
         #[arg(kv = "--state-dir")]
         #[requires("bin_dir")]
         pub state_dir: Option<OsString>,
+        /// Where the agent skill (SKILL.md) is written: beside the install receipt by default.
+        #[builder(into)]
+        #[arg(kv = "--skill-dir")]
+        pub skill_dir: Option<OsString>,
     }
 }
 
@@ -1916,7 +1924,7 @@ fn read_watch(w: &mut Words) -> Result<Watch> {
 }
 
 fn read_self_install(w: &mut Words) -> Result<SelfInstall> {
-    Ok(SelfInstall { from: kv(w, "--from")?, bin_dir: kv(w, "--bin-dir")?, state_dir: kv(w, "--state-dir")?, dry_run: w.flag("--dry-run"), force: w.flag("--force") })
+    Ok(SelfInstall { from: kv(w, "--from")?, bin_dir: kv(w, "--bin-dir")?, state_dir: kv(w, "--state-dir")?, skill_dir: kv(w, "--skill-dir")?, dry_run: w.flag("--dry-run"), force: w.flag("--force") })
 }
 
 fn read_self_uninstall(w: &mut Words) -> Result<SelfUninstall> {
@@ -1924,7 +1932,7 @@ fn read_self_uninstall(w: &mut Words) -> Result<SelfUninstall> {
 }
 
 fn read_self_status(w: &mut Words) -> Result<SelfStatus> {
-    Ok(SelfStatus { bin_dir: kv(w, "--bin-dir")?, state_dir: kv(w, "--state-dir")? })
+    Ok(SelfStatus { bin_dir: kv(w, "--bin-dir")?, state_dir: kv(w, "--state-dir")?, skill_dir: kv(w, "--skill-dir")? })
 }
 
 fn read_mcp_serve(w: &mut Words) -> Result<McpServe> {
@@ -2063,7 +2071,7 @@ mod tests {
             Custodian::serve().argv(),
             Custodian::stop().argv(),
             Custodian::watch().observe("all").since("4").follow().argv(),
-            Custodian::self_().install().from("target/release/custodian").bin_dir("b").state_dir("s").dry_run().force().argv(),
+            Custodian::self_().install().from("target/release/custodian").bin_dir("b").state_dir("s").skill_dir("k").dry_run().force().argv(),
             Custodian::self_().uninstall().force().argv(),
             Custodian::self_().status().argv(),
             Custodian::mcp().serve().root("/tmp/ws").argv(),

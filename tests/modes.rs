@@ -90,7 +90,8 @@ fn an_intent_is_planned_and_a_step_becomes_a_change_spec() {
     let shown = ok(&d, &["plan", "show", "digest"], 0);
     assert!(shown.contains("## steps") || shown.contains("step"), "{shown}");
     let approved = ok(&d, &["plan", "approve", "digest", "1"], 0);
-    assert!(approved.contains(".custodian/data/specs/changes/digest-1"), "{approved}");
+    // the approved step's spec is written in 1o
+    assert!(approved.contains(".custodian/data/specs/changes/v1.digest-1.1o.change"), "{approved}");
     // the step's spec carries its TODO until it is filled in: the preflight says so and does not authorize it
     let name = approved.lines().find_map(|l| l.split(".custodian/data/specs/changes/").nth(1)).and_then(|r| r.split(' ').next()).unwrap().trim_end_matches(".toml").to_string();
     let pre = run(&d, &["preflight", &name]);

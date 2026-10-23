@@ -432,14 +432,11 @@ pub fn linkage_check(ctx: &mut Ctx, target: Option<&str>) -> Result<Ran> {
     crate::readings::run_one(ctx, Some(target.unwrap_or("*")), Some("linkage"), &ask)
 }
 
-/// Writes a change spec into `data/specs/changes/` (in 1o, or its TOML twin when 1o cannot carry a value).
+/// Writes a change spec into `data/specs/changes/`, in 1o (a TOML spec there is still read).
 pub fn write_spec(ctx: &Ctx, spec: &custodian_kit::change::ChangeSpec) -> Result<PathBuf> {
     let dir = ctx.layout()?.dir::<crate::layout::ChangeSpec>(&[("name", "x")])?;
-    let (file, text) = match spec.to_1o() {
-        Ok(t) => (dir.join(custodian_kit::oneo::Doc::Change.file_name(&spec.name)), t),
-        Err(_) => (dir.join(format!("{}.toml", spec.name)), spec.to_toml()?),
-    };
-    write_whole(&file, text.as_bytes())?;
+    let file = dir.join(custodian_kit::oneo::Doc::Change.file_name(&spec.name));
+    write_whole(&file, spec.to_1o()?.as_bytes())?;
     Ok(file)
 }
 

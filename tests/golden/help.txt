@@ -34,11 +34,12 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian serve                                                           The resident, on the project's owner-only socket, until `custodian stop`
   custodian stop                                                            Ask the resident to stop
   custodian watch [--observe OBSERVE] [--since SINCE] [--follow]            Job state changes and test progress, through the observer set
-  custodian self install [--from FROM] [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--dry-run] [--force]
-                                                                            Installs custodian through the installation crate: a plan, the install from it, its receipt in the journal
+  custodian self install [--from FROM] [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--skill-dir SKILL_DIR] [--dry-run] [--force]
+                                                                            Installs custodian through the installation crate: a plan, the install from it, its receipt in the journal, and the agent skill beside the receipt
   custodian self uninstall [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--force]
                                                                             Uninstalls custodian from its install receipt
-  custodian self status [--bin-dir BIN_DIR] [--state-dir STATE_DIR]         What is installed, from its receipt
+  custodian self status [--bin-dir BIN_DIR] [--state-dir STATE_DIR] [--skill-dir SKILL_DIR]
+                                                                            What is installed, from its receipt, and where the agent skill is
   custodian mcp serve [--root ROOT]                                         An MCP server on stdin and stdout whose tools are these lines, each call run as the command line runs it
   custodian preflight SPEC [--batch] [--job JOB]                            What a change spec entails over the code as it is, and whether it is authorized: where it lands, its impact and cost, its preconditions, the files it writes against the scope it may write, the decisions it leaves open; before anything is written
   custodian transform [SPEC] [--write] [--revert REVERT] [--batch BATCH] [--after-proof AFTER_PROOF] [--tests] [--preflight] [--job JOB]

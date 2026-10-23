@@ -430,6 +430,25 @@ fn self_install_plans_installs_keeps_the_receipt_and_uninstalls() {
     assert!(bin.join("custodian").is_file(), "{done}");
     let status = ok(&d, &["self", "status", "--bin-dir", b, "--state-dir", s], 0);
     assert!(status.contains("the file matches its receipt"), "{status}");
+    // the agent skill beside the receipt: frontmatter, the six rules verbatim, every line; status names it
+    let skill = std::fs::read_to_string(state.join("custodian/SKILL.md")).unwrap_or_else(|e| panic!("{e}: {done}"));
+    assert!(skill.starts_with("---\nname: custodian\ndescription: ") && skill.contains("\n---\n"), "{skill}");
+    for (i, rule) in custodian::install::SKILL_RULES.iter().enumerate() {
+        assert!(skill.contains(&format!("{}. {rule}\n", i + 1)), "rule {}: {skill}", i + 1);
+    }
+    assert!(skill.contains("1. First line in any repo: `custodian agent brief`. Read what is pending before anything else."), "{skill}");
+    assert!(skill.contains("6. At the end: `job close`, then `handoff` is the message. Nothing else is written by hand."), "{skill}");
+    for l in custodian::surface::usage_lines() {
+        assert!(skill.contains(&l.words), "the line `{}` is in the skill", l.words);
+    }
+    assert!(status.contains(&format!("the agent skill: {}", state.join("custodian/SKILL.md").display())), "{status}");
+    // --skill-dir chooses the folder
+    let chosen = d.join("inst/skills/custodian");
+    let k = chosen.to_str().unwrap();
+    ok(&d, &["self", "install", "--bin-dir", b, "--state-dir", s, "--skill-dir", k, "--force"], 0);
+    assert_eq!(std::fs::read_to_string(chosen.join("SKILL.md")).unwrap(), skill);
+    let status = ok(&d, &["self", "status", "--bin-dir", b, "--state-dir", s, "--skill-dir", k], 0);
+    assert!(status.contains(&format!("the agent skill: {}", chosen.join("SKILL.md").display())), "{status}");
     let inv = ok(&d, &["list"], 0);
     assert!(inv.contains("## installs") && inv.contains("install custodian"), "{inv}");
     ok(&d, &["self", "uninstall", "--bin-dir", b, "--state-dir", s], 0);

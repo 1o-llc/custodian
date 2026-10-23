@@ -62,7 +62,8 @@ Built and tested in this version:
 - a resident (`custodian serve`) on an owner-only socket that holds the parsed workspace between runs; with none, the
   parsed index kept once per code digest under `.custodian/state/index/` and read back by the next run (each
   receipt's reason says `index parsed`, `index from cache` or `index from daemon`, with its milliseconds)
-- `self install` through the installation crate, and a pre-edit hook script (not enabled)
+- `self install` through the installation crate, with the agent skill beside its receipt (below), and a pre-edit
+  hook script (not enabled)
 - bounded and unbounded jobs (below), the `impact` reading (one target's uses, constructions, matches, impls,
   dependents, reach, tests, features and the cost of changing it, each dimension measured, heuristic or unknown),
   change specs with their preflight and code_passenger's `transform`, the plan of an intent, decisions asked once,
@@ -182,7 +183,7 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `sweep DIR` | the one walk: an undeclared tree listed, routes offered to declare |
 | `serve` / `stop` | the resident on the project's socket |
 | `watch [--observe L] [--since N] [--follow]` | job state changes and test progress, through the observer set |
-| `self install\|uninstall\|status` | install custodian through the installation crate, the receipt in the journal |
+| `self install\|uninstall\|status [--skill-dir DIR]` | install custodian through the installation crate, the receipt in the journal, the agent skill beside the receipt (`--skill-dir` chooses where); `status` names the skill |
 | `preflight SPEC [--job ID]`, `preflight --batch LIST` | what a change spec entails over the code as it is, and whether it is authorized; nothing written. `--batch`: every spec LIST names over one reading of the code, each checked as its own preflight checks it, one receipt listing each verdict (the batch transform's gate) |
 | `transform SPEC [--write]`, `transform --revert RECORD` | the change spec made by code_passenger on its preflight receipt; a record's files put back |
 | `plan make INTENT [--name N]`, `plan approve PLAN STEP [--operation OP]`, `plan show PLAN` | an intent's plan (where, reuse, what is new, impact, cost, decisions, steps); a step as a change spec |
@@ -193,6 +194,22 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `why ROUTE` | for a `crate:` or `decl:` route: the task histories whose changes touch it, the linkage records binding it, the readings about it, git's first and last commit touching its files |
 | `cost [--job ID] [--since SEQ]` | readings against reuses, the tokens they stood for against the tokens reuse saved, per reading kind and per job |
 | `requirements [ROUTE] [--intent TEXT] [--spec FILE] [--faces WORDS] [--job ID] [--again]` | what an intended change needs from the workspace as it is (custodian_kit's `requirements` reading): the manifests with no cargo, the needs against cargo metadata, Rust versions against the lock and the toolchain, the lock's duplicate versions; never compiles, never writes |
+
+## The agent skill
+
+`custodian self install` writes a skill folder beside the install receipt, `<state dir>/custodian/SKILL.md`
+(`$XDG_STATE_HOME/installation/custodian/SKILL.md` for a user install), or in `--skill-dir DIR`; it prints where,
+and `self status` names it. It is shaped the way an agent harness loads a skill (Claude Code's: a folder with a
+SKILL.md whose frontmatter has `name` and `description`), so pointing a harness at it, or copying the folder into
+`~/.claude/skills/`, gives the agent these six rules (`install::SKILL_RULES`) and, below them, every line as
+`custodian` with no words lists them:
+
+1. First line in any repo: `custodian agent brief`. Read what is pending before anything else.
+2. Before reading code by hand: run the reading for the question (dependents, reach, impact, readers of env, duplicates, requirements). Reuse is free.
+3. Before changing code: `job start` with an intent and a verify line. Strict mode for a known change, help mode for an investigation.
+4. In strict mode: specs only. If the vocabulary lacks the operation, extend code_passenger, never hand-edit.
+5. A decision you cannot make: `decide` asks it at the start. Never mid-task, never twice.
+6. At the end: `job close`, then `handoff` is the message. Nothing else is written by hand.
 
 `custodian` with no words prints these lines with their help, generated from the declarations
 (`tests/golden/help.txt` holds them). The 0.1.0 spellings `count [ROUTE]`, `test [--all]` and `plan INTENT` still
