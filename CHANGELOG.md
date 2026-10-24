@@ -1,5 +1,28 @@
 # Changelog
 
+## 0.3.12 (2026-10-23)
+
+The whole-workspace swap job's close was refused because every receipt the agent's lines kept carried the job's
+name (`--job toolkit-workspace`) and the close read them by the job's id. This release keeps the id on every receipt,
+writes a batch member's receipt only for a member the batch wrote, and lets `job close` close a refused job again.
+Nothing is removed from the API. Links are pinned to 28ffe84; the lines they replace to a484d10 (0.3.11).
+custodian_kit 0.3.13.
+
+- **A job named by its name is its id.** `current_job` ([facade.rs L193](https://github.com/1o-llc/custodian/blob/28ffe84c0f02c21815af7795911a4484ea886573/src/facade.rs#L193)) resolves a named
+  job through the journal (id or name, the newest) to its id; it kept the words as given
+  ([facade.rs L192](https://github.com/1o-llc/custodian/blob/a484d10fa55c1cd2a84f581b9a0452dec42abf34/src/facade.rs#L192)). Every line taking `--job` goes through it. custodian_kit 0.3.13 counts
+  the receipts already kept under a name. Test: custodian_kit's
+  `a_batch_over_three_files_closes_accepted_with_no_line_by_hand`.
+- **A batch member's receipt only when the batch wrote it.** `member_receipt`
+  ([changes.rs L304](https://github.com/1o-llc/custodian/blob/28ffe84c0f02c21815af7795911a4484ea886573/src/changes.rs#L304)) makes the `transform` receipt for a written member and none for a
+  member proved and not written: a dry batch keeps its one receipt. It wrote one for every member with a record
+  ([changes.rs L290](https://github.com/1o-llc/custodian/blob/a484d10fa55c1cd2a84f581b9a0452dec42abf34/src/changes.rs#L290)). Test: `a_batch_writes_a_receipt_for_a_member_only_when_it_wrote_it`.
+- **`job close` closes a refused job again.** With no running job of that name, a done job whose close was not
+  accepted is moved back to running and closed over the same receipts ([jobs.rs L283](https://github.com/1o-llc/custodian/blob/28ffe84c0f02c21815af7795911a4484ea886573/src/jobs.rs#L283)), the line
+  the handoff gives for a refused close. Proved on the toolkit-workspace job itself.
+
+`cargo test`: 83 passed, 0 failed, 1 ignored.
+
 ## 0.3.11 (2026-10-23)
 
 An agent that works in a repository custodian serves has to know how custodian expects it to work before it reads
