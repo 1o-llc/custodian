@@ -6,11 +6,11 @@ The whole-workspace swap job's close was refused because every receipt the agent
 name (`--job toolkit-workspace`) and the close read them by the job's id. This release keeps the id on every receipt,
 writes a batch member's receipt only for a member the batch wrote, and lets `job close` close a refused job again.
 Nothing is removed from the API. Links are pinned to 28ffe84; the lines they replace to a484d10 (0.3.11).
-custodian_kit 0.3.13.
+custodian_kit 0.3.14.
 
 - **A job named by its name is its id.** `current_job` ([facade.rs L193](https://github.com/1o-llc/custodian/blob/28ffe84c0f02c21815af7795911a4484ea886573/src/facade.rs#L193)) resolves a named
   job through the journal (id or name, the newest) to its id; it kept the words as given
-  ([facade.rs L192](https://github.com/1o-llc/custodian/blob/a484d10fa55c1cd2a84f581b9a0452dec42abf34/src/facade.rs#L192)). Every line taking `--job` goes through it. custodian_kit 0.3.13 counts
+  ([facade.rs L192](https://github.com/1o-llc/custodian/blob/a484d10fa55c1cd2a84f581b9a0452dec42abf34/src/facade.rs#L192)). Every line taking `--job` goes through it. custodian_kit 0.3.14 counts
   the receipts already kept under a name. Test: custodian_kit's
   `a_batch_over_three_files_closes_accepted_with_no_line_by_hand`.
 - **A batch member's receipt only when the batch wrote it.** `member_receipt`

@@ -23,7 +23,7 @@ path = "src/main.rs"
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 # 0.1.1: a job's close reads cargo's test outcomes (`FAILED`), the words custodian writes
-custodian_kit = { version = "0.3.13", path = "../custodian_kit" }
+custodian_kit = { version = "0.3.14", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
 task_history = "0.1.2"
 # the receipts journal custodian's tables sit beside; the counts over time and their tables; every kind of history
