@@ -1,5 +1,47 @@
 # Changelog
 
+## Unreleased (2026-10-25)
+
+`custodian archive make|check|verify`: whole crates as one ZIP for delivery, beside `bundle` (which is untouched).
+The archive engine was built and tested on its own first; here it enters through the one execution boundary every
+line has. Nothing is removed from the API. Links are pinned to 9ddbcc1. custodian_kit unreleased (f6e18a7).
+
+- **Three lines under one surface.** [`Archive`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L213): `archive make ROUTE... [--workspace-deps]
+  [--attach ROUTE]... [--out ZIP] [--reveal] [--job JOB]` ([L823](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L823)), `archive check` (the
+  plan, nothing written) and `archive verify ZIP` ([L890](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L890)), each a `SimpleSubCommand` leaf
+  naming its statuses (0 `done`, 1 `findings`, 2 `refused`); a route is checked by the line itself
+  (`crate_route_word`: `crate:<name>`, a whole crate), and `make` and `check` refuse an empty route list
+  ([L822](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L822)). The help lines and the MCP tool list are made from the declarations
+  (`tests/golden/help.txt`, `tests/golden/mcp_tools.json`; tools `archive_make`, `archive_check`,
+  `archive_verify`).
+- **The work is the kit's declared line, through the facade.** [`archiving::make`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/archiving.rs#L25),
+  [`check`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/archiving.rs#L40) and [`verify`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/archiving.rs#L50) build custodian_kit's
+  `exec::ExecArchive` line (`custodian exec-archive --root ... --include ... --out ...`) and
+  [run it](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/archiving.rs#L102) as `facade::External::at` runs a job's reading: a child of the running
+  custodian through `run_external`, so it leaves xccute's `RuntimeOperationReceipt` (plan `custodian` or
+  `custodian.job.<id>`, operation and receipt digests, the decision by the line's named statuses, timing, the
+  captured output, the job, the archive as its output; its receipt's command word `archive` through
+  [`KIT_COMMANDS`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/facade.rs#L247)). The public line's own receipt is the facade's, as for every line.
+  `archived` and `gaps` are answers (0 and 1); `refused` passes the kit's refusal through as the child printed it.
+  [`cli::exec_archive`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/cli.rs#L353) is the child's side: the words read back into the kit's line, refused
+  unless they are that line in its order, the body `custodian_kit::archive::exec_archive` (or `verify_zip`), the
+  summary printed last, the exit status the line's word.
+- **Where the archive goes.** `--out` as named (from where the line was typed; the resident absolutizes it);
+  journaled with no `--out`, pathgen's [`data/archives/<routes>/<stamp>.zip`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/layout.rs#L97) (the kit's
+  `named::ARCHIVE`); free mode with no `--out` is refused (CUST1002) rather than guessed.
+- **Cargo metadata** is the kit's declared `CargoMetadata` line (`--format-version 1 --no-deps`), run inside the
+  child and said back (`cargo: cargo metadata ... → 0 (36 ms)`); no new `std::process::Command`.
+- Tests, `tests/archive.rs`: [`archive make` through the facade leaves both receipts](https://github.com/1o-llc/custodian/blob/9ddbcc1/tests/archive.rs#L31)
+  (the public line's, in process, `done`; the kit's line's, runner `line`, `archived`, 64-hex plan, operation and
+  receipt digests, the output), the archive's entries and manifest, the same bytes twice, an existing archive
+  refused with nothing overwritten and a `refused` receipt, `verify` through the same line and a flipped byte
+  caught; [`check` finds gaps, free mode keeps nothing, unsafe paths are refused before anything is written](https://github.com/1o-llc/custodian/blob/9ddbcc1/tests/archive.rs#L107);
+  [in a job both receipts carry the id and an undeclared path is CUST0023](https://github.com/1o-llc/custodian/blob/9ddbcc1/tests/archive.rs#L143);
+  [`facade::execute` in process](https://github.com/1o-llc/custodian/blob/9ddbcc1/tests/archive.rs#L168): one `RuntimeOperation` in the `custodian` plan, the
+  decision by the named statuses, the kit's receipt before it.
+
+`cargo test`: 87 passed, 0 failed, 1 ignored (`tests/archive.rs`: 4 of them).
+
 ## 0.3.12 (2026-10-23)
 
 The whole-workspace swap job's close was refused because every receipt the agent's lines kept carried the job's
