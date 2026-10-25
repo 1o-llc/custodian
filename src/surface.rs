@@ -163,6 +163,7 @@ macro_rules! leaf {
 #[composite(surface = "diagnostics", ty = Diagnostics)]
 #[composite(command = "triage", ty = Triage, init = "target")]
 #[composite(command = "bundle", ty = Bundle, init = "target")]
+#[composite(surface = "archive", ty = Archive)]
 #[composite(command = "sweep", ty = Sweep, init = "dir")]
 #[composite(surface = "count", ty = Count)]
 #[composite(command = "serve", ty = Serve)]
@@ -202,6 +203,14 @@ pub struct Agent;
 #[composite(command = "verify", ty = JobVerify, init = "line")]
 #[composite(command = "allow", ty = JobAllow, init = "glob")]
 pub struct Job;
+
+/// `custodian archive make|check|verify`.
+#[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
+#[subcommand(segment = "archive")]
+#[composite(command = "make", ty = ArchiveMake)]
+#[composite(command = "check", ty = ArchiveCheck)]
+#[composite(command = "verify", ty = ArchiveVerify, init = "file")]
+pub struct Archive;
 
 /// `custodian receipts merge`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
@@ -794,6 +803,99 @@ leaf! {
         /// Bundle again even when the same bundle exists over the same code.
         #[arg(flag = "--again")]
         pub again: bool,
+    }
+}
+
+leaf! {
+    /// The crates the routes name, whole, as one ZIP for delivery (custodian_kit's `archive`, run as the declared
+    /// line `custodian exec-archive`): with `--workspace-deps` every workspace crate they depend on, each recorded
+    /// with why it is there; `--attach` files under `workspace/`; a manifest with every file's sha256; the same
+    /// bytes for the same inputs; read back after it is written; never written over an archive that exists. A file
+    /// holding a secret item is refused unless `--reveal`. A gap (a crate in the archive depends on a workspace
+    /// crate that is not) is a finding.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "make")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    #[validate(with = "archive_make_valid")]
+    pub struct ArchiveMake {
+        /// The crates: `crate:<name>` routes.
+        #[builder(into)]
+        #[arg(positional, each = crate_route_word)]
+        pub routes: Vec<OsString>,
+        /// Every workspace crate an included crate depends on, recursively.
+        #[arg(flag = "--workspace-deps")]
+        pub workspace_deps: bool,
+        /// A file attached under `workspace/`: `crate:<name>/<file>`, or `path:<file>` (declared, inside a job).
+        #[builder(into)]
+        #[arg(kv = "--attach", each = plain)]
+        pub attach: Vec<OsString>,
+        /// Where the ZIP goes (journaled: `data/archives/<name>/<stamp>.zip` by default; free mode names it).
+        #[builder(into)]
+        #[arg(kv = "--out", each = plain)]
+        pub out: Option<OsString>,
+        /// Copy a file holding an item at `secret` or above as it is (refused otherwise).
+        #[arg(flag = "--reveal")]
+        pub reveal: bool,
+        /// The job the archive is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// What `archive make` would hold, nothing written: the crates and why each is there, the gaps, the attached
+    /// files, the file count.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "check")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    #[validate(with = "archive_check_valid")]
+    pub struct ArchiveCheck {
+        /// The crates: `crate:<name>` routes.
+        #[builder(into)]
+        #[arg(positional, each = crate_route_word)]
+        pub routes: Vec<OsString>,
+        /// Every workspace crate an included crate depends on, recursively.
+        #[arg(flag = "--workspace-deps")]
+        pub workspace_deps: bool,
+        /// A file attached under `workspace/`: `crate:<name>/<file>`, or `path:<file>` (declared, inside a job).
+        #[builder(into)]
+        #[arg(kv = "--attach", each = plain)]
+        pub attach: Vec<OsString>,
+        /// Plan with a file holding a secret item copied as it is.
+        #[arg(flag = "--reveal")]
+        pub reveal: bool,
+        /// The job the plan is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// An archive read back: every entry's CRC, the manifest's schema, every file it names present with the digest
+    /// and size it says, no file it does not name.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "verify")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct ArchiveVerify {
+        /// The ZIP.
+        #[builder(init_required, into)]
+        #[arg(positional, each = plain)]
+        pub file: OsString,
+        /// The job the verification is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
     }
 }
 
@@ -1434,6 +1536,28 @@ fn route_word(field: &str, word: &OsStr) -> CommandValidationResult {
     }
 }
 
+/// A route naming a whole crate: `crate:<name>` (no file).
+fn crate_route_word(field: &str, word: &OsStr) -> CommandValidationResult {
+    match word.to_str().and_then(|w| w.strip_prefix("crate:")) {
+        Some(name) if !name.is_empty() && !name.contains('/') => Ok(()),
+        _ => refuse(field, format!("{word:?} is not a crate:<name> route")),
+    }
+}
+
+fn archive_make_valid(line: &ArchiveMake) -> CommandValidationResult {
+    if line.routes.is_empty() {
+        return refuse("routes", "archive make names at least one crate:<name> route".into());
+    }
+    Ok(())
+}
+
+fn archive_check_valid(line: &ArchiveCheck) -> CommandValidationResult {
+    if line.routes.is_empty() {
+        return refuse("routes", "archive check names at least one crate:<name> route".into());
+    }
+    Ok(())
+}
+
 fn one_of(field: &str, word: &OsStr, words: &[&str]) -> CommandValidationResult {
     match word.to_str() {
         Some(w) if words.contains(&w) => Ok(()),
@@ -1600,7 +1724,7 @@ macro_rules! lines {
         pub const DECLARED: &[(&str, Declared)] = &[$((concat!($($word, " "),+), $ty::DECLARED),)*];
 
         /// Every surface the root has, by its segment.
-        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise", "receipts"];
+        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise", "receipts", "archive"];
 
         impl Line {
             /// The words that name the line: `job start`.
@@ -1690,6 +1814,9 @@ lines! {
     DiagnosticsFrom(DiagnosticsFrom) = ["diagnostics", "from"] in Diagnostics => read_diagnostics_from;
     Triage(Triage) = ["triage"] in root => read_triage;
     Bundle(Bundle) = ["bundle"] in root => read_bundle;
+    ArchiveMake(ArchiveMake) = ["archive", "make"] in Archive => read_archive_make;
+    ArchiveCheck(ArchiveCheck) = ["archive", "check"] in Archive => read_archive_check;
+    ArchiveVerify(ArchiveVerify) = ["archive", "verify"] in Archive => read_archive_verify;
     Sweep(Sweep) = ["sweep"] in root => read_sweep;
     CountOf(CountOf) = ["count", "of"] in Count => read_count_of;
     CountReport(CountReport) = ["count", "report"] in Count => read_count_report;
@@ -1893,6 +2020,27 @@ fn read_bundle(w: &mut Words) -> Result<Bundle> {
     })
 }
 
+/// Every word left that is not an option, in order (the routes of an archive line).
+fn positionals(w: &mut Words) -> Vec<OsString> {
+    let mut v = Vec::new();
+    while let Some(p) = w.positional() {
+        v.push(OsString::from(p));
+    }
+    v
+}
+
+fn read_archive_make(w: &mut Words) -> Result<ArchiveMake> {
+    Ok(ArchiveMake { workspace_deps: w.flag("--workspace-deps"), reveal: w.flag("--reveal"), attach: w.kvs("--attach")?.into_iter().map(OsString::from).collect(), out: kv(w, "--out")?, job: kv(w, "--job")?, routes: positionals(w) })
+}
+
+fn read_archive_check(w: &mut Words) -> Result<ArchiveCheck> {
+    Ok(ArchiveCheck { workspace_deps: w.flag("--workspace-deps"), reveal: w.flag("--reveal"), attach: w.kvs("--attach")?.into_iter().map(OsString::from).collect(), job: kv(w, "--job")?, routes: positionals(w) })
+}
+
+fn read_archive_verify(w: &mut Words) -> Result<ArchiveVerify> {
+    Ok(ArchiveVerify { job: kv(w, "--job")?, file: need(w, "archive (archive verify FILE.zip)", "archive verify")? })
+}
+
 fn read_sweep(w: &mut Words) -> Result<Sweep> {
     Ok(Sweep { dir: need(w, "directory", "sweep")? })
 }
@@ -2065,6 +2213,9 @@ mod tests {
             Custodian::triage("@box.log").argv(),
             Custodian::bundle("crate:core_lib").no_tests().no_benches().no_examples().no_feature("serde").only("src").redact_level("secret").again().argv(),
             Custodian::sweep("vendor").argv(),
+            Custodian::archive().make().routes(["crate:app", "crate:core_lib"]).workspace_deps().attach(["path:Cargo.toml", "crate:core_lib/README.md"]).out("delivery/app.zip").reveal().job("j-7").argv(),
+            Custodian::archive().check().routes(["crate:app"]).workspace_deps().attach(["path:Cargo.lock"]).reveal().job("j-7").argv(),
+            Custodian::archive().verify("delivery/app.zip").job("j-7").argv(),
             Custodian::count().of().route("crate:core_lib").by("language").tests().again().job("j-4").argv(),
             Custodian::count().report("3", "9").argv(),
             Custodian::count().history().route("crate:core_lib").argv(),
@@ -2146,6 +2297,10 @@ mod tests {
         assert!(read(&words("job start --verify nonsense")).is_err());
         assert!(read(&words("transform")).is_err() && read(&words("transform s.toml --revert r.json")).is_err());
         assert!(read(&words("why core_lib")).unwrap_err().to_string().contains("not a crate: or decl: route"));
+        assert!(read(&words("archive make")).unwrap_err().to_string().contains("names at least one crate:<name> route"));
+        assert!(read(&words("archive make crate:core_lib/src/lib.rs")).unwrap_err().to_string().contains("is not a crate:<name> route"));
+        assert!(read(&words("archive check decl:marketplace")).is_err() && read(&words("archive verify")).is_err());
+        assert_eq!(read(&words("archive make --workspace-deps crate:app --attach path:Cargo.toml")).unwrap().display(), "custodian archive make crate:app --workspace-deps --attach path:Cargo.toml");
         assert!(read(&words("handoff --for everyone")).is_err() && read(&words("cost --since ten")).is_err());
         assert_eq!(read(&words("handoff --since 7 --for agent j-1")).unwrap().display(), "custodian handoff j-1 --for agent --since 7");
         // the spellings from before the surfaces

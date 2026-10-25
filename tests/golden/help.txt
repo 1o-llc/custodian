@@ -27,6 +27,11 @@ custodian: readings of a Rust workspace, each run a declared line with a receipt
   custodian triage TARGET                                                   The built-in triage job, started and closed
   custodian bundle TARGET [--no-tests] [--no-benches] [--no-examples] [--no-feature NO_FEATURE] [--only ONLY] [--redact-level REDACT_LEVEL] [--reveal] [--again]
                                                                             A route, a declared set or a job as one annotated file, its filters a checked word
+  custodian archive make [ROUTES...] [--workspace-deps] [--attach ATTACH]... [--out OUT] [--reveal] [--job JOB]
+                                                                            The crates the routes name, whole, as one ZIP for delivery (custodian_kit's `archive`, run as the declared line `custodian exec-archive`): with `--workspace-deps` every workspace crate they depend on, each recorded with why it is there; `--attach` files under `workspace/`; a manifest with every file's sha256; the same bytes for the same inputs; read back after it is written; never written over an archive that exists
+  custodian archive check [ROUTES...] [--workspace-deps] [--attach ATTACH]... [--reveal] [--job JOB]
+                                                                            What `archive make` would hold, nothing written: the crates and why each is there, the gaps, the attached files, the file count
+  custodian archive verify FILE [--job JOB]                                 An archive read back: every entry's CRC, the manifest's schema, every file it names present with the digest and size it says, no file it does not name
   custodian sweep DIR                                                       List an undeclared tree and offer the routes to declare (the one walk custodian makes)
   custodian count of [ROUTE] [--by BY] [--tests] [--again] [--job JOB]      Files, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share
   custodian count report A B                                                Two counts compared: per crate and language, files added and removed, both digests

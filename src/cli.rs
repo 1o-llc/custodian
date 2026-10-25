@@ -21,6 +21,10 @@ pub fn main_argv(args: &[OsString]) -> i32 {
     if args.first().is_some_and(|a| a == "exec-reading") {
         return exec_reading(&args[1..]);
     }
+    // the kit's archive line, run by `archive make|check|verify` through the facade: the same way
+    if args.first().is_some_and(|a| a == "exec-archive") {
+        return exec_archive(&args[1..]);
+    }
     let line = match surface::read(args) {
         Ok(l) => l,
         Err(e) => {
@@ -107,6 +111,9 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::DiagnosticsFrom(l) => crate::diag::diagnostics(ctx, "from", Some(&s(&l.log))),
         Line::Triage(l) => crate::diag::triage(ctx, &s(&l.target)),
         Line::Bundle(l) => crate::bundling::bundle(ctx, l),
+        Line::ArchiveMake(l) => crate::archiving::make(ctx, l),
+        Line::ArchiveCheck(l) => crate::archiving::check(ctx, l),
+        Line::ArchiveVerify(l) => crate::archiving::verify(ctx, l),
         Line::Sweep(l) => readings_sweep(ctx, &s(&l.dir)),
         Line::CountOf(l) => crate::counting::count(ctx, l),
         Line::CountReport(l) => crate::counting::report(ctx, &s(&l.a), &s(&l.b)),
@@ -336,6 +343,67 @@ fn macros_by_passenger(ctx: &mut Ctx, ran: &mut Ran) -> Result<()> {
         }
     }
     Ok(())
+}
+
+/// `custodian exec-archive --root R [--include ROUTE]... [--attach ROUTE]... [--workspace-deps] [--reveal] [--out ZIP]
+/// [--verify ZIP] [--job ID]`: custodian_kit's declared archive line (`exec::ExecArchive`), as `archive make`,
+/// `check` and `verify` run it through the facade. The words are read back into that line and must be what it
+/// writes; the archive is made (or read back) by `custodian_kit::archive`, its summary the last line; the exit
+/// status is the line's word: 0 archived, 1 gaps, 2 refused.
+fn exec_archive(rest: &[OsString]) -> i32 {
+    use custodian_kit::archive::{exec_archive as archive, verify_zip, ArchiveJob};
+    use custodian_kit::exec::{Custodian as Kit, ExecArchiveRooted};
+    let mut w = surface::Words::new(&rest.iter().map(|a| a.to_string_lossy().into_owned()).collect::<Vec<_>>());
+    let read = (|| -> Result<(ExecArchiveRooted<Kit>, ArchiveJob, Option<String>)> {
+        let root = w.kv("--root")?.ok_or_else(|| Code::LineRefused.refuse("exec-archive needs --root"))?;
+        let (include, attach) = (w.kvs("--include")?, w.kvs("--attach")?);
+        let (workspace_deps, reveal) = (w.flag("--workspace-deps"), w.flag("--reveal"));
+        let (out, verify, job) = (w.kv("--out")?, w.kv("--verify")?, w.kv("--job")?);
+        let mut line = Kit::exec_archive(root.as_str()).include(include.clone()).attach(attach.clone());
+        if workspace_deps {
+            line = line.workspace_deps();
+        }
+        if reveal {
+            line = line.reveal();
+        }
+        if let Some(o) = &out {
+            line = line.out(o.as_str());
+        }
+        if let Some(v) = &verify {
+            line = line.verify(v.as_str());
+        }
+        if let Some(j) = &job {
+            line = line.job(j.as_str());
+        }
+        let how = if job.is_some() { custodian_kit::api::Resolving::Job } else { custodian_kit::api::Resolving::Free };
+        Ok((line, ArchiveJob { root: PathBuf::from(root), routes: include, attach, workspace_deps, reveal, out: out.map(PathBuf::from), how }, verify))
+    })();
+    let (line, job, verify) = match read.and_then(|x| w.done("exec-archive").map(|_| x)) {
+        Ok(x) => x,
+        Err(e) => {
+            eprintln!("{e}");
+            return 2;
+        }
+    };
+    use xccute_contract::{CompositeShellCommand, ValidatedCommand};
+    if line.argv()[1..] != *rest || line.validate().is_err() {
+        eprintln!("{}", Code::LineRefused.refuse("exec-archive: the words are not the kit's declared line, in its order"));
+        return 2;
+    }
+    let printed = match verify {
+        Some(zip) => verify_zip(Path::new(&zip)).map(|r| (serde_json::to_string(&r).unwrap_or_default(), 0)),
+        None => archive(&job).map(|s| (serde_json::to_string(&s).unwrap_or_default(), s.code())),
+    };
+    match printed {
+        Ok((json, code)) => {
+            println!("{json}");
+            code
+        }
+        Err(e) => {
+            eprintln!("{}", crate::codes::Refusal::from(e));
+            2
+        }
+    }
 }
 
 /// `custodian exec-reading --spec S --root R --out DIR|- --stamp T [--job ID]`: custodian_kit's declared reading

@@ -180,6 +180,7 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `diagnostics list [CRATE] \| where CODE \| from LOGFILE` | every liaise code table: meanings, declarations, the sites raising them |
 | `triage CODE\|@LOGFILE` | the triage job: the code's sites, what they reach, the tests that prove a fix, the marks there |
 | `bundle ROUTE\|JOB [--no-tests] [--no-benches] [--no-examples] [--no-feature F] [--only src] [--redact-level secret] [--reveal]` | a crate, a declared set or a job as one annotated file |
+| `archive make ROUTE... [--workspace-deps] [--attach ROUTE]... [--out ZIP] [--reveal]`, `archive check ROUTE... [...]`, `archive verify ZIP` | whole crates for delivery as one ZIP (custodian_kit's `archive`, run as its declared line `custodian exec-archive` through the facade, a receipt of its own): the closure of workspace crates with why each is there, attached files under `workspace/`, a manifest with every file's sha256, the same bytes for the same inputs, read back after it is written, never written over one that exists; a file holding a secret item refused unless `--reveal`; `check` plans only; `verify` reads one back |
 | `sweep DIR` | the one walk: an undeclared tree listed, routes offered to declare |
 | `serve` / `stop` | the resident on the project's socket |
 | `watch [--observe L] [--since N] [--follow]` | job state changes and test progress, through the observer set |
@@ -364,7 +365,8 @@ boolean, a list an array, the rest strings, a field's word set its `enum`, its `
 by its line's path (`job_start` runs `job start`): `agent_brief`, `run` (a search on the line is `target` with
 `kind`, as `reach` or `impact`), `list`, `diff`, `job_start`, `job_close`, `job_brief`, `job_list`, `job_verify`,
 `test`, `test_report`, `check`, `annotate` and `features` (their plans only: `--apply` is a person's),
-`diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `count`, `count_report`,
+`diagnostics_list`, `diagnostics_where`, `diagnostics_from`, `triage`, `bundle`, `archive_make`, `archive_check`,
+`archive_verify`, `count`, `count_report`,
 `count_history`, `preflight`, `transform`, `plan_make`, `plan_approve`, `plan_show`, `decide`, `linkage_add`,
 `linkage_check`, `exercise_report`, `handoff` (its `reader` `agent` adds the lines to run), `why`, `cost` and
 `requirements`. `init`, `agent init`, `agent guard`, `job import`, `job allow`, `sweep`, `serve`, `stop`,

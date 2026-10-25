@@ -93,6 +93,8 @@ kit_parts! {
     Tree => TREE,
     /// `data/costs/{seq}.json`: a reading's cost, or a reuse's saving, under its receipt's number.
     CostFile => COST,
+    /// `data/archives/{name}/{stamp}.zip`: an archive `archive make` wrote, dated, every earlier one kept.
+    ArchiveFile => ARCHIVE,
 }
 
 /// The parts the command line alone writes (a reading's record, a check's JSON, a log read from stdin), one
@@ -232,6 +234,7 @@ mod tests {
         same::<Linkage>(k::LINKAGE);
         same::<IntentPlan>(k::INTENT_PLAN);
         same::<Tree>(k::TREE);
+        same::<ArchiveFile>(k::ARCHIVE);
         // the three the command line alone writes kept the schema, route and place they had as its own declarations
         assert_eq!(TABLE.iter().map(|d| (d.output.schema, d.output.route_id, d.output.relative_template)).collect::<Vec<_>>(), [
             ("custodian.reading.v1", "custodian.reading.record", "readings/{name}/{stamp}.json"),

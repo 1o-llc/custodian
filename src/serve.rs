@@ -112,6 +112,9 @@ pub fn absolute(line: &Line, here: &Path) -> Line {
     match line {
         Line::Run(r) => Line::Run(surface::Run { target: abs(&r.target), ..r.clone() }),
         Line::JobImport(j) => Line::JobImport(surface::JobImport { bundle: abs(&Some(j.bundle.clone())).unwrap_or_else(|| j.bundle.clone()) }),
+        // an archive's output does not exist yet: named from where the line was typed
+        Line::ArchiveMake(a) => Line::ArchiveMake(surface::ArchiveMake { out: a.out.as_ref().map(|o| here.join(o).into_os_string()), ..a.clone() }),
+        Line::ArchiveVerify(v) => Line::ArchiveVerify(surface::ArchiveVerify { file: abs(&Some(v.file.clone())).unwrap_or_else(|| v.file.clone()), ..v.clone() }),
         other => other.clone(),
     }
 }

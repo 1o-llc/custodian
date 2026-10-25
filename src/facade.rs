@@ -244,7 +244,7 @@ impl Ctx {
 /// What ran, in custodian_kit's words for a receipt's `command` (`reading`, `test`, `check`, `git`, `gate`,
 /// `job-close`): the journal's one vocabulary, which the kit's job close reads to list a job's readings, its tests
 /// and its checks. A program's line whose kind the kit names is written with the kit's word.
-pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("git.log", "git"), ("code-passenger.gate", "gate"), ("code-passenger.transform", "transform")];
+pub const KIT_COMMANDS: &[(&str, &str)] = &[("cargo.test", "test"), ("git.diff", "git"), ("git.log", "git"), ("code-passenger.gate", "gate"), ("code-passenger.transform", "transform"), ("custodian.exec-archive", "archive")];
 
 /// The kit's word for a line that answered a spec, read or reused (`custodian run`, `count`, `diagnostics`,
 /// `bundle`, `sweep`).

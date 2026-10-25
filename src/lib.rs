@@ -14,6 +14,7 @@
 #![deny(unsafe_code)]
 
 pub mod agent;
+pub mod archiving;
 pub mod budget;
 pub mod bundling;
 pub mod changes;

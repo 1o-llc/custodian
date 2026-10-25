@@ -447,6 +447,103 @@
     }
   },
   {
+    "name": "archive_make",
+    "description": "Runs `custodian archive make`, a declared line; every run leaves a receipt. Whole crates for delivery; `bundle` is one annotated file for reading.\n\nThe crates the routes name, whole, as one ZIP for delivery (custodian_kit's `archive`, run as the declared line `custodian exec-archive`): with `--workspace-deps` every workspace crate they depend on, each recorded with why it is there; `--attach` files under `workspace/`; a manifest with every file's sha256; the same bytes for the same inputs; read back after it is written; never written over an archive that exists. A file holding a secret item is refused unless `--reveal`. A gap (a crate in the archive depends on a workspace crate that is not) is a finding.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "attach": {
+          "description": "A file attached under `workspace/`: `crate:<name>/<file>`, or `path:<file>` (declared, inside a job). (`--attach`)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "job": {
+          "description": "The job the archive is part of (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "out": {
+          "description": "Where the ZIP goes (journaled: `data/archives/<name>/<stamp>.zip` by default; free mode names it). (`--out`)",
+          "type": "string"
+        },
+        "reveal": {
+          "description": "Copy a file holding an item at `secret` or above as it is (refused otherwise). (`--reveal`)",
+          "type": "boolean"
+        },
+        "routes": {
+          "description": "The crates: `crate:<name>` routes. (a word on the line)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspace_deps": {
+          "description": "Every workspace crate an included crate depends on, recursively. (`--workspace-deps`)",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "archive_check",
+    "description": "Runs `custodian archive check`, a declared line; every run leaves a receipt.\n\nWhat `archive make` would hold, nothing written: the crates and why each is there, the gaps, the attached files, the file count.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "attach": {
+          "description": "A file attached under `workspace/`: `crate:<name>/<file>`, or `path:<file>` (declared, inside a job). (`--attach`)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "job": {
+          "description": "The job the plan is part of (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "reveal": {
+          "description": "Plan with a file holding a secret item copied as it is. (`--reveal`)",
+          "type": "boolean"
+        },
+        "routes": {
+          "description": "The crates: `crate:<name>` routes. (a word on the line)",
+          "items": {
+            "type": "string"
+          },
+          "type": "array"
+        },
+        "workspace_deps": {
+          "description": "Every workspace crate an included crate depends on, recursively. (`--workspace-deps`)",
+          "type": "boolean"
+        }
+      },
+      "type": "object"
+    }
+  },
+  {
+    "name": "archive_verify",
+    "description": "Runs `custodian archive verify`, a declared line; every run leaves a receipt.\n\nAn archive read back: every entry's CRC, the manifest's schema, every file it names present with the digest and size it says, no file it does not name.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "The ZIP. (a word on the line)",
+          "type": "string"
+        },
+        "job": {
+          "description": "The job the verification is part of (the running job by default). (`--job`)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "count",
     "description": "Runs `custodian count of`, a declared line; every run leaves a receipt.\n\nFiles, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share.",
     "inputSchema": {
