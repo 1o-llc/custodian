@@ -1,10 +1,12 @@
 # Changelog
 
-## Unreleased (2026-10-25)
+## 0.3.13 (2026-10-25)
 
 `custodian archive make|check|verify`: whole crates as one ZIP for delivery, beside `bundle` (which is untouched).
 The archive engine was built and tested on its own first; here it enters through the one execution boundary every
-line has. Nothing is removed from the API. Links are pinned to 9ddbcc1. custodian_kit unreleased (f6e18a7).
+line has. Nothing is removed from the API; three lines and a part of the folder are added, so this is the next patch, as
+0.3.11's additions were. Links are pinned to 9ddbcc1 (the lines) and, for the audit's fix, custodian_kit 68067d1.
+custodian_kit 0.3.15.
 
 - **Three lines under one surface.** [`Archive`](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L213): `archive make ROUTE... [--workspace-deps]
   [--attach ROUTE]... [--out ZIP] [--reveal] [--job JOB]` ([L823](https://github.com/1o-llc/custodian/blob/9ddbcc1/src/surface.rs#L823)), `archive check` (the
