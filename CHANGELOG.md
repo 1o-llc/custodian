@@ -1,5 +1,31 @@
 # Changelog
 
+## 0.4.0 (unreleased)
+
+The laboratory-control repair (2026-10-30), on custodian_kit 0.4.0: an experiment is a job opened over its specimen,
+its provenance kept with it accepted or rejected; a candidate is held only to the format and lint findings it adds; a
+preflight needs the lock that fixes the dependency state. Minor, not patch: `JobClose` and `StartAsk` gain fields,
+and the preflight and transform lines are stricter through the kit and code_passenger 0.5.0. Nothing is removed.
+Links are pinned to 363e4d7.
+
+- **`job start --specimen PATH`** ([surface.rs L471](https://github.com/1o-llc/custodian/blob/363e4d7/src/surface.rs#L471)): the job is an experiment; the kit's
+  `provenance::open` keeps the specimen's identity, the tree, code digest and lock at open, and the files the copy
+  differs by ([jobs.rs L246](https://github.com/1o-llc/custodian/blob/363e4d7/src/jobs.rs#L246)).
+- **`job measure FILE [--label L]`** ([surface.rs L506](https://github.com/1o-llc/custodian/blob/363e4d7/src/surface.rs#L506), [jobs.rs L360](https://github.com/1o-llc/custodian/blob/363e4d7/src/jobs.rs#L360)):
+  the file copied into the job's folder, its digest in the provenance, its receipt.
+- **`job close --reject WHY`** ([surface.rs L493](https://github.com/1o-llc/custodian/blob/363e4d7/src/surface.rs#L493), [`close_as`](https://github.com/1o-llc/custodian/blob/363e4d7/src/jobs.rs#L291)): the
+  evidence read and kept, the result `rejected` with the reason; the close completes the provenance with the tree at
+  close, each change and the disposition ([L335](https://github.com/1o-llc/custodian/blob/363e4d7/src/jobs.rs#L335)).
+- **`delta fmt|clippy [--base DIR]`** ([surface.rs L532](https://github.com/1o-llc/custodian/blob/363e4d7/src/surface.rs#L532), [deltas.rs L12](https://github.com/1o-llc/custodian/blob/363e4d7/src/deltas.rs#L12)):
+  the kit's delta against the base named, or the running experiment's specimen; `delta:<kind>` verifies by it.
+- The resident takes the new lines' paths from where they were typed; the MCP tools `job_measure` and `delta`.
+- Tests, `tests/lab_control.rs`: `the_scientific_workflow_runs_end_to_end_and_keeps_its_provenance` (a lockless
+  specimen refused with CUST0046, a lock on the copy, the experiment, the preflight, code_passenger's write on it, the
+  delta, a measurement, the accepted close, the provenance, the specimen unchanged),
+  `a_rejected_experiment_is_kept_as_an_accepted_one_is`, `a_finding_the_candidate_introduces_fails_the_experiment`.
+
+`cargo test`: 90 passed, 0 failed, 1 ignored.
+
 ## 0.3.13 (2026-10-25)
 
 `custodian archive make|check|verify`: whole crates as one ZIP for delivery, beside `bundle` (which is untouched).

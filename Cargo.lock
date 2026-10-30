@@ -612,12 +612,12 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.3.13"
+version = "0.4.0"
 dependencies = [
  "abut",
  "big-bad-bool",
  "chrono",
- "custodian_kit",
+ "custodian_kit 0.4.0",
  "differences_kit",
  "flaga_solver",
  "installation",
@@ -651,6 +651,53 @@ dependencies = [
 [[package]]
 name = "custodian_kit"
 version = "0.3.15"
+source = "registry+https://github.com/rust-lang/crates.io-index"
+checksum = "3d675629ca4ff153fd616c0e1a8c196d6e07accf739fca836b82f95bc914deaa"
+dependencies = [
+ "big-bad-bool",
+ "bundles",
+ "change_history",
+ "chrono",
+ "ciborium",
+ "classified",
+ "core-1o",
+ "diff_history",
+ "flaga_solver",
+ "globset",
+ "klepto",
+ "liaise",
+ "maintenance",
+ "pathgen",
+ "proc-macro2",
+ "quote",
+ "receipt_history",
+ "revision_history",
+ "rusqlite",
+ "scope",
+ "serde",
+ "serde_json",
+ "simple_impl_derive",
+ "stable_digest",
+ "syn 2.0.118",
+ "tantivy",
+ "task_history",
+ "thiserror 1.0.69",
+ "tokei",
+ "toml 0.8.23",
+ "toml_edit",
+ "tree_history",
+ "uh-tom-mick",
+ "walkdir",
+ "xccute_commands",
+ "xccute_contract",
+ "xccute_decisions",
+ "xccute_runtime",
+ "zstd",
+]
+
+[[package]]
+name = "custodian_kit"
+version = "0.4.0"
 dependencies = [
  "big-bad-bool",
  "bundles",
@@ -803,7 +850,7 @@ checksum = "953bde698667119993e2289092efcd17bbe682d913cd3f58b9cbc2f136a90862"
 dependencies = [
  "big-bad-bool",
  "change_history",
- "custodian_kit",
+ "custodian_kit 0.3.15",
  "diff_history",
  "liaise",
  "pathgen",
