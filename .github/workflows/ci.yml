@@ -43,6 +43,8 @@ jobs:
       - uses: dtolnay/rust-toolchain@master
         with:
           toolchain: ${{ matrix.rust }}
+          # tests/lab_control.rs runs `custodian delta fmt` (rustfmt's check) on every Rust
+          components: rustfmt
       - name: Build the writer the bounded-mode tests run (code-passenger, from ../code_passenger)
         # its rust-version may be newer than this crate's: built on stable only; tests/modes.rs says when it skips
         if: matrix.rust == 'stable'
