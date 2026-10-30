@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.4.0 (unreleased)
+## 0.4.0 (2026-10-30)
 
 The laboratory-control repair (2026-10-30), on custodian_kit 0.4.0: an experiment is a job opened over its specimen,
 its provenance kept with it accepted or rejected; a candidate is held only to the format and lint findings it adds; a
