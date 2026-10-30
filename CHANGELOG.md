@@ -2,7 +2,7 @@
 
 ## 0.4.0 (2026-10-30)
 
-The laboratory-control repair (2026-10-30), on custodian_kit 0.4.0: an experiment is a job opened over its specimen,
+The laboratory-control repair (2026-10-30), on custodian_kit 0.4.1: an experiment is a job opened over its specimen,
 its provenance kept with it accepted or rejected; a candidate is held only to the format and lint findings it adds; a
 preflight needs the lock that fixes the dependency state. Minor, not patch: `JobClose` and `StartAsk` gain fields,
 and the preflight and transform lines are stricter through the kit and code_passenger 0.5.0. Nothing is removed.
@@ -22,9 +22,12 @@ Links are pinned to 363e4d7.
 - Tests, `tests/lab_control.rs`: `the_scientific_workflow_runs_end_to_end_and_keeps_its_provenance` (a lockless
   specimen refused with CUST0046, a lock on the copy, the experiment, the preflight, code_passenger's write on it, the
   delta, a measurement, the accepted close, the provenance, the specimen unchanged),
-  `a_rejected_experiment_is_kept_as_an_accepted_one_is`, `a_finding_the_candidate_introduces_fails_the_experiment`.
+  `a_rejected_experiment_is_kept_as_an_accepted_one_is`, `a_finding_the_candidate_introduces_fails_the_experiment`,
+  `a_write_code_passenger_makes_on_its_own_line_is_the_experiments_change` (the protocol's
+  `code-passenger transform --preflight N --write`: the closed experiment names that change, its preflight and its
+  writer; custodian_kit 0.4.1's close counts it, 0.4.0's did not).
 
-`cargo test`: 90 passed, 0 failed, 1 ignored.
+`cargo test`: 91 passed, 0 failed, 1 ignored.
 
 ## 0.3.13 (2026-10-25)
 

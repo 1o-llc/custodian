@@ -617,7 +617,7 @@ dependencies = [
  "abut",
  "big-bad-bool",
  "chrono",
- "custodian_kit 0.4.0",
+ "custodian_kit 0.4.1",
  "differences_kit",
  "flaga_solver",
  "installation",
@@ -697,7 +697,7 @@ dependencies = [
 
 [[package]]
 name = "custodian_kit"
-version = "0.4.0"
+version = "0.4.1"
 dependencies = [
  "big-bad-bool",
  "bundles",

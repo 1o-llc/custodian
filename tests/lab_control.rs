@@ -164,3 +164,38 @@ fn a_finding_the_candidate_introduces_fails_the_experiment() {
     let p = provenance(&done_folder(&c, "messy"));
     assert_eq!(p["disposition"]["result"], "failed_test");
 }
+
+/// The protocol's own form of the write: code-passenger on its own line, on the preflight number custodian gave
+/// (`code-passenger --root . transform --spec ... --preflight N --write`). The closed experiment's provenance names
+/// that change, its spec, its preflight and its writer, as it does for custodian's `transform` line.
+#[test]
+fn a_write_code_passenger_makes_on_its_own_line_is_the_experiments_change() {
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("skipped: no code-passenger with the transform line (build ../code_passenger, or set CUSTODIAN_TEST_PASSENGER)");
+        return;
+    };
+    let s = specimen("own-line");
+    let c = candidate(&s, "own-line");
+    lock(&c);
+    ok(&c, &["agent", "init"], 0);
+    let artifacts = fresh("artifacts-own-line");
+    let spec = artifacts.join("first-free.toml");
+    std::fs::write(&spec, SPEC).unwrap();
+    ok(&c, &["job", "start", "own", "--intent", "one pass over the slots", "--specimen", s.to_str().unwrap(), "--verify", "test:lab"], 0);
+    let pre = ok(&c, &["preflight", spec.to_str().unwrap()], 0);
+    let n: i64 = pre.split("· receipt #").nth(1).and_then(|r| r.split_whitespace().next()).and_then(|n| n.parse().ok()).unwrap_or_else(|| panic!("no receipt number: {pre}"));
+    let out = artifacts.join("written.json");
+    let w = std::process::Command::new(bin.join("code-passenger"))
+        .args(["--root", ".", "transform", "--spec", spec.to_str().unwrap(), "--preflight", &n.to_string(), "--write", "--out", out.to_str().unwrap()])
+        .current_dir(&c)
+        .output()
+        .unwrap();
+    assert!(w.status.success(), "{}{}", String::from_utf8_lossy(&w.stdout), String::from_utf8_lossy(&w.stderr));
+    let closed = ok(&c, &["job", "close"], 0);
+    assert!(closed.contains("result: accepted"), "{closed}");
+    let p = provenance(&done_folder(&c, "own"));
+    let change = &p["changes"][0];
+    assert_eq!((change["spec_name"].as_str(), change["preflight_seq"].as_i64(), change["preflight_decision"].as_str(), change["written"].as_bool()), (Some("first-free"), Some(n), Some("authorized"), Some(true)), "{p}");
+    assert_eq!(change["code_digest_after"], p["close"]["code_digest"], "the code it wrote is the code the experiment closed on");
+    assert!(change["writer"].as_str().unwrap().starts_with("code_passenger "), "{change}");
+}
