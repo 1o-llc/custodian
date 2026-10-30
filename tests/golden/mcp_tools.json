@@ -140,6 +140,10 @@
           "description": "The job's name (a queued folder, or a new one). (a word on the line)",
           "type": "string"
         },
+        "specimen": {
+          "description": "The specimen the job's tree was copied from (a folder or an archive): the job is an experiment, and its provenance (the specimen's identity, the tree at open and close, each change, each measurement, the disposition) is kept in its folder. (`--specimen`)",
+          "type": "string"
+        },
         "target": {
           "description": "What the job works on: a route or an item (its target is known when it resolves). (`--target`)",
           "type": "string"
@@ -163,6 +167,10 @@
       "properties": {
         "name": {
           "description": "The job's id (the running one by default). (a word on the line)",
+          "type": "string"
+        },
+        "reject": {
+          "description": "Reject the job, and why: its evidence is still read and kept, its result is `rejected`, its folder kept as any closed job's is. Nothing makes a job `accepted` but its evidence. (`--reject`)",
           "type": "string"
         }
       },
@@ -213,6 +221,31 @@
       },
       "required": [
         "line"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "job_measure",
+    "description": "Runs `custodian job measure`, a declared line; every run leaves a receipt. A measurement kept with the running experiment, its digest in the job's provenance.\n\nKeeps a measurement with the running experiment: the file copied into the job's folder, its digest in the job's provenance, its receipt.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "file": {
+          "description": "The measurement's file (a benchmark's output, a log). (a word on the line)",
+          "type": "string"
+        },
+        "job": {
+          "description": "The job (the running one by default). (`--job`)",
+          "type": "string"
+        },
+        "label": {
+          "description": "What it measured (the file's name by default). (`--label`)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "file"
       ],
       "type": "object"
     }
@@ -539,6 +572,35 @@
       },
       "required": [
         "file"
+      ],
+      "type": "object"
+    }
+  },
+  {
+    "name": "delta",
+    "description": "Runs `custodian delta`, a declared line; every run leaves a receipt. Before judging a candidate by a format or lint check: only the findings it adds to its base count.\n\nThe format or lint findings this tree adds to a base's (custodian_kit's `delta`): the same check on the base and here, each finding keyed by what it says and the code it is about, the base's own findings inherited, only the new ones the candidate's; a finding the base has is never this tree's failure. Neither tree is written.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "base": {
+          "description": "The base: the specimen the tree was copied from. (`--base`)",
+          "type": "string"
+        },
+        "job": {
+          "description": "The job the delta is part of (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "kind": {
+          "description": "`fmt` (rustfmt's check) or `clippy`. (a word on the line)",
+          "enum": [
+            "fmt",
+            "clippy"
+          ],
+          "type": "string"
+        }
+      },
+      "required": [
+        "kind"
       ],
       "type": "object"
     }

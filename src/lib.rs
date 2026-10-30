@@ -22,6 +22,7 @@ pub mod cli;
 pub mod codes;
 pub mod counting;
 pub mod decide;
+pub mod deltas;
 pub mod diag;
 pub mod digest;
 pub mod exercise;

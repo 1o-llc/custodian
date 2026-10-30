@@ -164,6 +164,7 @@ macro_rules! leaf {
 #[composite(command = "triage", ty = Triage, init = "target")]
 #[composite(command = "bundle", ty = Bundle, init = "target")]
 #[composite(surface = "archive", ty = Archive)]
+#[composite(command = "delta", ty = Delta, init = "kind")]
 #[composite(command = "sweep", ty = Sweep, init = "dir")]
 #[composite(surface = "count", ty = Count)]
 #[composite(command = "serve", ty = Serve)]
@@ -192,7 +193,7 @@ pub struct Custodian;
 #[composite(command = "guard", ty = AgentGuard, init = "file")]
 pub struct Agent;
 
-/// `custodian job start|close|brief|import|list|verify|allow`.
+/// `custodian job start|close|brief|import|list|verify|allow|measure`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
 #[subcommand(segment = "job")]
 #[composite(command = "start", ty = JobStart)]
@@ -202,6 +203,7 @@ pub struct Agent;
 #[composite(command = "list", ty = JobList)]
 #[composite(command = "verify", ty = JobVerify, init = "line")]
 #[composite(command = "allow", ty = JobAllow, init = "glob")]
+#[composite(command = "measure", ty = JobMeasure, init = "file")]
 pub struct Job;
 
 /// `custodian archive make|check|verify`.
@@ -461,6 +463,12 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--budget", each = nonempty)]
         pub budget: Option<OsString>,
+        /// The specimen the job's tree was copied from (a folder or an archive): the job is an experiment, and its
+        /// provenance (the specimen's identity, the tree at open and close, each change, each measurement, the
+        /// disposition) is kept in its folder.
+        #[builder(into)]
+        #[arg(kv = "--specimen", each = nonempty)]
+        pub specimen: Option<OsString>,
     }
 }
 
@@ -478,6 +486,62 @@ leaf! {
         #[builder(into)]
         #[arg(positional, each = plain)]
         pub name: Option<OsString>,
+        /// Reject the job, and why: its evidence is still read and kept, its result is `rejected`, its folder kept as
+        /// any closed job's is. Nothing makes a job `accepted` but its evidence.
+        #[builder(into)]
+        #[arg(kv = "--reject", each = nonempty)]
+        pub reject: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// Keeps a measurement with the running experiment: the file copied into the job's folder, its digest in the
+    /// job's provenance, its receipt.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "measure")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct JobMeasure {
+        /// The measurement's file (a benchmark's output, a log).
+        #[builder(init_required, into)]
+        #[arg(positional, each = plain)]
+        pub file: OsString,
+        /// What it measured (the file's name by default).
+        #[builder(into)]
+        #[arg(kv = "--label", each = nonempty)]
+        pub label: Option<OsString>,
+        /// The job (the running one by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
+leaf! {
+    /// The format or lint findings this tree adds to a base's (custodian_kit's `delta`): the same check on the base and
+    /// here, each finding keyed by what it says and the code it is about, the base's own findings inherited, only the
+    /// new ones the candidate's; a finding the base has is never this tree's failure. Neither tree is written.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "delta")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct Delta {
+        /// `fmt` (rustfmt's check) or `clippy`.
+        #[builder(init_required, into)]
+        #[arg(positional, each = delta_word)]
+        pub kind: OsString,
+        /// The base: the specimen the tree was copied from.
+        #[builder(into)]
+        #[arg(kv = "--base", each = nonempty)]
+        pub base: Option<OsString>,
+        /// The job the delta is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
     }
 }
 
@@ -1590,7 +1654,7 @@ fn unit_words(field: &str, word: &OsStr) -> CommandValidationResult {
 fn verify_word(field: &str, word: &OsStr) -> CommandValidationResult {
     match word.to_str().and_then(|w| w.split_once(':')) {
         Some((form, what)) if custodian_kit::jobs::VERIFY_FORMS.contains(&form) && !what.is_empty() => Ok(()),
-        _ => refuse(field, format!("{word:?} is not a verification: test:<name>, reading:<spec>, check:<which>")),
+        _ => refuse(field, format!("{word:?} is not a verification: test:<name>, reading:<spec>, check:<which>, delta:<fmt|clippy>")),
     }
 }
 
@@ -1624,6 +1688,7 @@ word_sets! {
     only_word => ["src"];
     redact_word => ["secret"];
     reader_word => custodian_kit::handoff::Reader::WORDS;
+    delta_word => custodian_kit::delta::Kind::ALL.iter().map(|k| k.as_str()).collect::<Vec<&'static str>>();
 }
 
 fn transform_valid(line: &Transform) -> CommandValidationResult {
@@ -1803,6 +1868,7 @@ lines! {
     JobList(JobList) = ["job", "list"] in Job => read_job_list;
     JobVerify(JobVerify) = ["job", "verify"] in Job => read_job_verify;
     JobAllow(JobAllow) = ["job", "allow"] in Job => read_job_allow;
+    JobMeasure(JobMeasure) = ["job", "measure"] in Job => read_job_measure;
     ReceiptsMerge(ReceiptsMerge) = ["receipts", "merge"] in Receipts => read_receipts_merge;
     TestRun(TestRun) = ["test", "run"] in Test => read_test_run;
     TestReport(TestReport) = ["test", "report"] in Test => read_test_report;
@@ -1814,6 +1880,7 @@ lines! {
     DiagnosticsFrom(DiagnosticsFrom) = ["diagnostics", "from"] in Diagnostics => read_diagnostics_from;
     Triage(Triage) = ["triage"] in root => read_triage;
     Bundle(Bundle) = ["bundle"] in root => read_bundle;
+    Delta(Delta) = ["delta"] in root => read_delta;
     ArchiveMake(ArchiveMake) = ["archive", "make"] in Archive => read_archive_make;
     ArchiveCheck(ArchiveCheck) = ["archive", "check"] in Archive => read_archive_check;
     ArchiveVerify(ArchiveVerify) = ["archive", "verify"] in Archive => read_archive_verify;
@@ -1938,12 +2005,21 @@ fn read_job_start(w: &mut Words) -> Result<JobStart> {
         baseline: w.flag("--baseline"),
         allow_file: w.kvs("--allow-file")?.into_iter().map(OsString::from).collect(),
         budget: kv(w, "--budget")?,
+        specimen: kv(w, "--specimen")?,
         name: pos(w),
     })
 }
 
 fn read_job_close(w: &mut Words) -> Result<JobClose> {
-    Ok(JobClose { name: pos(w) })
+    Ok(JobClose { reject: kv(w, "--reject")?, name: pos(w) })
+}
+
+fn read_job_measure(w: &mut Words) -> Result<JobMeasure> {
+    Ok(JobMeasure { label: kv(w, "--label")?, job: kv(w, "--job")?, file: need(w, "measurement file (job measure FILE)", "job measure")? })
+}
+
+fn read_delta(w: &mut Words) -> Result<Delta> {
+    Ok(Delta { base: kv(w, "--base")?, job: kv(w, "--job")?, kind: need(w, "kind (fmt or clippy)", "delta")? })
 }
 
 fn read_job_brief(w: &mut Words) -> Result<JobBrief> {
@@ -2196,7 +2272,11 @@ mod tests {
             Custodian::list().argv(),
             Custodian::diff("env").from("3").to("9").argv(),
             Custodian::job().start().name("batch").kind("triage").target("CUST0004").intent("find the raise").mode("bounded").verify(["test:a", "check:all"]).again().baseline().allow_file(["tests/ui/*.stderr"]).argv(),
+            Custodian::job().start().name("exp").verify(["delta:fmt"]).specimen("../baseline").argv(),
             Custodian::job().close().name("batch").argv(),
+            Custodian::job().close().name("batch").reject("slower_than_the_base").argv(),
+            Custodian::job().measure("bench.json").label("throughput").job("j-1").argv(),
+            Custodian::delta("fmt").base("../baseline").job("j-1").argv(),
             Custodian::job().brief().name("batch").bundle().argv(),
             Custodian::job().import("x.bundle").argv(),
             Custodian::job().list().argv(),

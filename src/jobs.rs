@@ -117,6 +117,8 @@ pub struct StartAsk {
     pub allow_file: Vec<String>,
     /// The job's budget, `hours=<n>,battery=<percent>`.
     pub budget: Option<String>,
+    /// The specimen the tree was copied from: the job is an experiment (custodian_kit's `provenance`).
+    pub specimen: Option<String>,
 }
 
 /// The passenger checkpoints a job took, kept in its folder: `{ "open": id, "close": id }`.
@@ -238,6 +240,16 @@ pub fn start_now(ctx: &mut Ctx, ask: &StartAsk) -> Result<Ran> {
         ran.say(line);
     }
     checkpoint(ctx, &started.id, &started.folder, "open", &mut ran)?;
+    // an experiment: the specimen's identity and the tree as it opens, kept in the job's folder
+    if let Some(sp) = &ask.specimen {
+        let specimen = std::env::current_dir().unwrap_or_default().join(sp);
+        let p = custodian_kit::provenance::open(&started.folder, ctx.root(), &started.id, &specimen)?;
+        if let Some(s) = &p.specimen {
+            ran.say(format!("experiment: specimen {} ({}) {} ({} files)", s.path, s.form, s.state.tree_digest, s.state.files));
+        }
+        ran.say(format!("experiment: tree at open {} ({} files), code {}, {}", p.open.tree_digest, p.open.files, p.open.code_digest.clone().unwrap_or_else(|| "-".into()), p.open.lock.as_ref().map(|l| format!("{} {}", l.path, l.digest)).unwrap_or_else(|| "no Cargo.lock".into())));
+        ran.say(format!("experiment: differs from the specimen at open: {}", if p.open_vs_specimen.is_empty() { "nothing".into() } else { p.open_vs_specimen.join(", ") }));
+    }
     if started.runs.iter().any(|r| r.receipt.as_ref().is_some_and(|x| !x.accepted)) {
         ran.code = 1;
     }
@@ -272,11 +284,16 @@ fn running(ctx: &Ctx, which: Option<&str>) -> Result<(String, PathBuf)> {
 
 /// `custodian job close [ID]`: a passenger checkpoint, then the kit's job close.
 pub fn close(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
-    let line = crate::surface::Line::JobClose(crate::surface::JobClose { name: which.map(Into::into) });
-    crate::runtime::under_job_lock(ctx, &line, |ctx| close_held(ctx, which))
+    close_as(ctx, which, None)
 }
 
-fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
+/// `custodian job close [ID] [--reject WHY]`: [`close`], rejected when `reject` says why.
+pub fn close_as(ctx: &mut Ctx, which: Option<&str>, reject: Option<&str>) -> Result<Ran> {
+    let line = crate::surface::Line::JobClose(crate::surface::JobClose { name: which.map(Into::into), reject: reject.map(Into::into) });
+    crate::runtime::under_job_lock(ctx, &line, |ctx| close_held(ctx, which, reject))
+}
+
+fn close_held(ctx: &mut Ctx, which: Option<&str>, reject: Option<&str>) -> Result<Ran> {
     let (id, folder) = match running(ctx, which) {
         Ok(r) => r,
         // a done job whose close was refused is closed again over its receipts (the handoff's line for it)
@@ -296,8 +313,8 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
     let (closing, file, said) = {
         let k = kit(ctx);
         match runner_workspace(ctx)? {
-            Some(ws) => custodian_kit::jobs::close_with(&k, &id, Some(ws))?,
-            None => custodian_kit::jobs::close_with(&k, &id, None)?,
+            Some(ws) => custodian_kit::jobs::close_as(&k, &id, Some(ws), reject)?,
+            None => custodian_kit::jobs::close_as(&k, &id, None, reject)?,
         }
     };
     ran.said.extend(said);
@@ -312,6 +329,13 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
         ran.say(format!("the tree in code_passenger's store: {a} at open, {b} at close ({})", ctx.rel(&done.join(PASSENGER_FILE))));
     }
     ran.say(format!("closing receipt: {}", ctx.rel(&file)));
+    // an experiment: the tree as it closes, its changes, the disposition, kept beside the closing receipt
+    let runs = ctx.journal()?.receipts()?;
+    let closing_seq = runs.iter().rev().find(|r| r.command == "job-close" && r.job.as_deref() == Some(id.as_str())).map(|r| r.seq);
+    if let Some(p) = custodian_kit::provenance::close(&done, ctx.root(), &closing, &runs, reject.is_some(), closing_seq)? {
+        ran.print(custodian_kit::provenance::render(&p));
+        ran.say(format!("provenance: {}", ctx.rel(&done.join(custodian_kit::jobs::JOB_DATA).join(custodian_kit::provenance::PROVENANCE_FILE))));
+    }
     ran.say(format!("result: {}{}", closing.result, closing.result_reason.as_ref().map(|r| format!(" ({r})")).unwrap_or_default()));
     if let Some(o) = &closing.over_budget {
         ran.say(format!("time: {o}"));
@@ -328,6 +352,22 @@ fn close_held(ctx: &mut Ctx, which: Option<&str>) -> Result<Ran> {
         // a test that failed is a finding; an unbounded job's pending result is said, not a finding (it is help)
         ran.code = 1;
     }
+    Ok(ran)
+}
+
+/// `custodian job measure FILE [--label L] [--job J]`: the file kept with the running experiment, copied into its
+/// folder with its digest.
+pub fn measure(ctx: &mut Ctx, l: &crate::surface::JobMeasure) -> Result<Ran> {
+    let (id, folder) = running(ctx, crate::surface::so(&l.job).as_deref())?;
+    let file = std::env::current_dir().unwrap_or_default().join(crate::surface::s(&l.file));
+    let label = crate::surface::so(&l.label).unwrap_or_else(|| file.file_stem().map(|s| s.to_string_lossy().into_owned()).unwrap_or_else(|| "measurement".into()));
+    let m = custodian_kit::provenance::measure(&folder, ctx.root(), &file, &label)?;
+    let mut ran = Ran::named(format!("measure {}", m.label));
+    ran.job = Some(id);
+    let kept = ctx.rel(&folder.join(&m.file));
+    ran.say(format!("measurement {}: {} ({} bytes) kept as {kept}", m.label, m.digest, m.bytes));
+    // a file inside the folder, so the kit's move rewrites it with the folder's other paths
+    ran.outputs = vec![kept];
     Ok(ran)
 }
 

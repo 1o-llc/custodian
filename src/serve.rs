@@ -114,6 +114,9 @@ pub fn absolute(line: &Line, here: &Path) -> Line {
         Line::JobImport(j) => Line::JobImport(surface::JobImport { bundle: abs(&Some(j.bundle.clone())).unwrap_or_else(|| j.bundle.clone()) }),
         // an archive's output does not exist yet: named from where the line was typed
         Line::ArchiveMake(a) => Line::ArchiveMake(surface::ArchiveMake { out: a.out.as_ref().map(|o| here.join(o).into_os_string()), ..a.clone() }),
+        Line::JobMeasure(m) => Line::JobMeasure(surface::JobMeasure { file: abs(&Some(m.file.clone())).unwrap_or_else(|| m.file.clone()), ..m.clone() }),
+        Line::Delta(d) => Line::Delta(surface::Delta { base: abs(&d.base), ..d.clone() }),
+        Line::JobStart(j) => Line::JobStart(surface::JobStart { specimen: abs(&j.specimen), ..j.clone() }),
         Line::ArchiveVerify(v) => Line::ArchiveVerify(surface::ArchiveVerify { file: abs(&Some(v.file.clone())).unwrap_or_else(|| v.file.clone()), ..v.clone() }),
         other => other.clone(),
     }

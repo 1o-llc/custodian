@@ -95,6 +95,8 @@ kit_parts! {
     CostFile => COST,
     /// `data/archives/{name}/{stamp}.zip`: an archive `archive make` wrote, dated, every earlier one kept.
     ArchiveFile => ARCHIVE,
+    /// `data/deltas/{kind}/{stamp}.json`: a delta's record.
+    DeltaFile => DELTA,
 }
 
 /// The parts the command line alone writes (a reading's record, a check's JSON, a log read from stdin), one
@@ -235,6 +237,7 @@ mod tests {
         same::<IntentPlan>(k::INTENT_PLAN);
         same::<Tree>(k::TREE);
         same::<ArchiveFile>(k::ARCHIVE);
+        same::<DeltaFile>(k::DELTA);
         // the three the command line alone writes kept the schema, route and place they had as its own declarations
         assert_eq!(TABLE.iter().map(|d| (d.output.schema, d.output.route_id, d.output.relative_template)).collect::<Vec<_>>(), [
             ("custodian.reading.v1", "custodian.reading.record", "readings/{name}/{stamp}.json"),

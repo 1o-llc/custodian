@@ -94,7 +94,9 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::List(_) => readings::list(ctx),
         Line::Diff(l) => readings::diff(ctx, &s(&l.spec), so(&l.from).and_then(|v| v.parse().ok()), so(&l.to).and_then(|v| v.parse().ok())),
         Line::JobStart(l) => job_start(ctx, l),
-        Line::JobClose(l) => need_agent(ctx).and_then(|_| crate::jobs::close(ctx, so(&l.name).as_deref())),
+        Line::JobClose(l) => need_agent(ctx).and_then(|_| crate::jobs::close_as(ctx, so(&l.name).as_deref(), so(&l.reject).as_deref())),
+        Line::JobMeasure(l) => need_agent(ctx).and_then(|_| crate::jobs::measure(ctx, l)),
+        Line::Delta(l) => crate::deltas::delta(ctx, l),
         Line::JobBrief(l) => need_agent(ctx).and_then(|_| crate::jobs::brief(ctx, so(&l.name).as_deref(), l.bundle)),
         Line::JobImport(l) => need_agent(ctx).and_then(|_| crate::jobs::import(ctx, Path::new(&s(&l.bundle)), crate::runtime::Limit::default())),
         Line::JobList(_) => need_agent(ctx).and_then(|_| crate::jobs::list(ctx)),
@@ -199,7 +201,7 @@ fn job_start(ctx: &mut Ctx, l: &surface::JobStart) -> Result<Ran> {
     need_agent(ctx)?;
     crate::jobs::start(
         ctx,
-        &crate::jobs::StartAsk { which: so(&l.name), kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, mode: so(&l.mode), verify: l.verify.iter().map(s).collect(), baseline: l.baseline, allow_file: l.allow_file.iter().map(s).collect(), budget: so(&l.budget), ..Default::default() },
+        &crate::jobs::StartAsk { which: so(&l.name), kind: so(&l.kind), target: so(&l.target), intent: so(&l.intent), again: l.again, mode: so(&l.mode), verify: l.verify.iter().map(s).collect(), baseline: l.baseline, allow_file: l.allow_file.iter().map(s).collect(), budget: so(&l.budget), specimen: so(&l.specimen), ..Default::default() },
     )
 }
 
