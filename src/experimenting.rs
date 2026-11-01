@@ -10,11 +10,15 @@
 //! is this line's output. The status is custodian's: done (0) when the experiment promotes, findings (1) when it
 //! does not promote or is undecided (the scientific conclusion is in the result, never an execution failure), and
 //! refused (2) when the experiment could not run to its conclusion.
+//!
+//! Once the result is written, the journal gets an `experiment` event naming it: its subject the experiment's id, its
+//! state the promotion, its detail the result's path exactly as this line's output names it. A task waiting for the
+//! experiment is woken from that event ([`crate::observe`]) and reads the result back through [`latest_result`].
 
 use crate::codes::{Code, Refusal, Result};
 use crate::facade::{self, Ctx, External, ExternalNames, Ran};
 use crate::surface::{self, s, so, ExperimentRun, Line};
-use experiments::{ChangeRequest, CommandRecord, CommandSpec, Evidence, ExperimentError, ExperimentHost, ExperimentRunner, MutationRecord, PromotionDecision};
+use experiments::{ChangeRequest, CommandRecord, CommandSpec, Evidence, ExperimentError, ExperimentHost, ExperimentResult, ExperimentRunner, MutationRecord, PromotionDecision};
 use std::path::{Path, PathBuf};
 
 pub fn run(ctx: &mut Ctx, l: &ExperimentRun) -> Result<Ran> {
@@ -43,10 +47,41 @@ pub fn run(ctx: &mut Ctx, l: &ExperimentRun) -> Result<Ran> {
     };
     ran.say(format!("experiment {} run {}: {} commands, {} changes, {} evidence", result.experiment_id, result.run_id, result.commands.len(), result.mutations.len(), result.evidence.len()));
     ran.say(format!("scientific outcome: {:?} · promotion: {:?} · verification {}", result.evaluation.conclusion.outcome, result.promotion, if result.verification.passed { "passed" } else { "failed" }));
-    ran.say(format!("result: {}", ctx.rel(&path)));
-    ran.outputs = vec![ctx.rel(&path)];
+    let kept = ctx.rel(&path);
+    ran.say(format!("result: {kept}"));
+    // the result is written: the change that a waiting task is woken for, naming the output this line keeps
+    if let Some(j) = ctx.journal.as_ref() {
+        j.event(EVENT, job.as_deref(), &result.experiment_id, promotion_word(result.promotion), &kept, None)?;
+    }
+    ran.outputs = vec![kept];
     ran.code = status_of(result.promotion);
     Ok(ran)
+}
+
+/// The journal event a hosted run's result makes.
+pub const EVENT: &str = "experiment";
+
+/// The promotion as the result writes it (`experiments`' own words).
+pub fn promotion_word(p: PromotionDecision) -> &'static str {
+    match p {
+        PromotionDecision::Promote => "promote",
+        PromotionDecision::DoNotPromote => "do_not_promote",
+        PromotionDecision::Undecided => "undecided",
+    }
+}
+
+/// Experiment `id`'s latest hosted result, read from what custodian keeps: the path its newest `experiment` event
+/// names, which must be the output of an `experiment run` receipt of that experiment, and the result read there.
+/// `None` while it has none.
+pub fn latest_result(ctx: &Ctx, id: &str) -> Result<Option<(String, ExperimentResult)>> {
+    let journal = ctx.journal()?;
+    let Some(e) = journal.events_since(0)?.into_iter().rev().find(|e| e.kind == EVENT && e.subject == id) else { return Ok(None) };
+    let kept = journal.receipts()?.into_iter().any(|r| r.command == EVENT && r.name == id && r.outputs.contains(&e.detail));
+    if !kept {
+        return Err(Code::ExperimentRefused.refuse(format!("{id}: the event names {}, which no `experiment run` receipt kept", e.detail)));
+    }
+    let result = experiments::read_result(ctx.root().join(&e.detail)).map_err(|x| Code::ExperimentRefused.refuse(format!("{}: {x}", e.detail)))?;
+    Ok(Some((e.detail, result)))
 }
 
 /// Custodian's status for an experiment that ran to its conclusion: promote is done; do-not-promote and undecided

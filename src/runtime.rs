@@ -214,6 +214,84 @@ fn write_report(st: &JobState) {
     }
 }
 
+/// A protocol task waiting for one experiment's result. It is woken by its cold observer
+/// ([`crate::observe::Observers::wait_for_experiment`]) through ob-serve-a-bowl's protocol bridge; each poll reads
+/// the result from what custodian keeps ([`crate::experimenting::latest_result`]: the journal's event, the run line's
+/// receipt, the result file), never from the wake. Until there is one it waits (`Pending`).
+#[derive(Debug, Clone, PartialEq, Serialize, Deserialize, Default)]
+pub struct ExperimentWait {
+    pub root: PathBuf,
+    pub experiment: String,
+    /// Times polled.
+    pub polls: u32,
+    /// The result's path, as the receipt names it, once read.
+    pub result: Option<String>,
+    /// The run whose result was read.
+    pub run: Option<String>,
+    pub failed: Option<String>,
+}
+
+impl ExperimentWait {
+    pub fn new(root: &Path, experiment: &str) -> ExperimentWait {
+        ExperimentWait { root: root.to_path_buf(), experiment: experiment.into(), ..ExperimentWait::default() }
+    }
+}
+
+/// What each experiment waiter saw, by root and experiment, as it was polled.
+static WAITS: Mutex<Vec<ExperimentWait>> = Mutex::new(Vec::new());
+
+fn keep_wait(w: &ExperimentWait) {
+    if let Ok(mut v) = WAITS.lock() {
+        v.retain(|x| (&x.root, &x.experiment) != (&w.root, &w.experiment));
+        v.push(w.clone());
+    }
+}
+
+/// The experiment waiter for `experiment` under `root`, as it was last polled.
+pub fn experiment_wait(root: &Path, experiment: &str) -> Option<ExperimentWait> {
+    WAITS.lock().ok()?.iter().find(|w| w.root == root && w.experiment == experiment).cloned()
+}
+
+// SAFETY: every function touches only `self`; `restore` accepts any bytes (bytes that are not an ExperimentWait make
+// a task that ends at its first poll, failed).
+unsafe impl ProtocolTask for ExperimentWait {
+    unsafe fn poll(&mut self) -> TaskPoll {
+        self.polls += 1;
+        if self.failed.is_some() {
+            keep_wait(self);
+            return TaskPoll::Ready;
+        }
+        let read = Ctx::at(&self.root).and_then(|ctx| crate::experimenting::latest_result(&ctx, &self.experiment));
+        let poll = match read {
+            Ok(Some((path, result))) => {
+                self.result = Some(path);
+                self.run = Some(result.run_id);
+                TaskPoll::Ready
+            }
+            Ok(None) => TaskPoll::Pending,
+            Err(e) => {
+                self.failed = Some(e.to_string());
+                TaskPoll::Ready
+            }
+        };
+        keep_wait(self);
+        poll
+    }
+
+    unsafe fn checkpoint(&mut self) -> Vec<u8> {
+        serde_json::to_vec(&self).unwrap_or_default()
+    }
+
+    unsafe fn restore(bytes: &[u8]) -> Self {
+        serde_json::from_slice(bytes).unwrap_or_else(|e| ExperimentWait { failed: Some(format!("a checkpoint that does not restore: {e}")), ..ExperimentWait::default() })
+    }
+}
+
+derive_protocol_task_vtable!(ExperimentWait, EXPERIMENT_WAIT_VTABLE);
+
+/// The scheduler's key for experiment waiters.
+pub const EXPERIMENT_WAIT_KEY: VTableKey = VTableKey { segment: "custodian", kind: "experiment-wait", version: 1 };
+
 /// How far the runner goes before it returns: every stage, or (an interruption, for a test) this many.
 #[derive(Debug, Clone, Copy, Default)]
 pub struct Limit {

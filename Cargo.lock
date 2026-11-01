@@ -1919,6 +1919,7 @@ dependencies = [
  "big-bad-bool",
  "big-bad-bool-interact",
  "loom",
+ "waker_protocol",
 ]
 
 [[package]]
