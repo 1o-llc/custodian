@@ -1,5 +1,48 @@
 # Changelog
 
+## 0.5.0 (2026-11-01)
+
+`experiments` hosted by custodian (the integration's first pass), on experiments 0.3.2. An experiment's runner still
+decides what runs, in which order and what each status means; custodian now carries out each operation as its own,
+so a hosted experiment leaves the receipts, job association and transform records every other line does. Minor, not
+patch: a new line, a new resident request kind, and the rust-version is 1.90 (experiments needs it). Nothing is
+removed. Links are pinned to 573f684.
+
+- **`experiment run SPEC [STORAGE] [--job JOB]`** ([surface.rs L1875](https://github.com/1o-llc/custodian/blob/573f684/src/surface.rs#L1875)),
+  declared like every other line: its argv, validation, help, statuses and MCP tool come from the one declaration.
+  The running job is used when `--job` is absent.
+- **Commands are custodian's lines** ([`run_command`](https://github.com/1o-llc/custodian/blob/573f684/src/experimenting.rs#L91)):
+  each prepare, baseline, measurement, candidate, verification and cleanup command runs through the facade's
+  `run_external` as a declared argv line ([`External::argv`](https://github.com/1o-llc/custodian/blob/573f684/src/facade.rs#L394),
+  no shell between), with a receipt `experiment.<phase>` in the job; the experiment's `CommandRecord` keeps the
+  receipt's line.
+- **A bounded change is custodian's preflight, then custodian's transform** ([`apply_change`](https://github.com/1o-llc/custodian/blob/573f684/src/experimenting.rs#L111)):
+  both run as declared lines through `facade::execute` under the writer the `experiment run` line already holds (no
+  nested `run_line`, so the one-writer admission is never asked for twice). code_passenger remains the writer; the
+  transform record lands in the job's `data/transforms` and is the experiment's `code_passenger_transform`
+  evidence, with the preflight and transform receipts beside it. A preflight that does not authorize stops the run
+  before any transform: nothing is written. experiments is built without its `code-passenger` feature here, so the
+  hosted path is the only one that can write.
+- **The result is the line's output** ([`run`](https://github.com/1o-llc/custodian/blob/573f684/src/experimenting.rs#L20)):
+  the `ExperimentResult` stays experiments' own, laid out by `ExperimentPaths` under STORAGE, else the job's
+  `data/experiments`, else the project's ([`storage_of`](https://github.com/1o-llc/custodian/blob/573f684/src/experimenting.rs#L62)).
+- **Statuses** ([`status_of`](https://github.com/1o-llc/custodian/blob/573f684/src/experimenting.rs#L54)): promote is done (0);
+  do-not-promote and undecided are findings (1), the scientific conclusion staying in the result; an experiment that
+  cannot run to its conclusion is refused (2), as the operation custodian refused (a preflight's CUST0046, a missing
+  program's CUST1601), else the new `CUST2101`.
+- **The resident** answers `experiment run` (request kind `run_experiment`), SPEC and STORAGE made absolute where the
+  line was typed ([serve.rs L121](https://github.com/1o-llc/custodian/blob/573f684/src/serve.rs#L121)).
+- **MCP**: the `experiment_run` tool, its schema the declaration's ([mcp.rs L84](https://github.com/1o-llc/custodian/blob/573f684/src/mcp.rs#L84)).
+- `rust-version` 1.90; CI tests on it.
+- Tests, `tests/experiments.rs`: the line reads back from its own words; the MCP tool is the declared line; the
+  statuses; a hosted run keeps its result in the job and each command has its receipt there; a bounded change goes
+  through custodian's preflight and transform and code_passenger, its record the experiment's evidence and the
+  job's close counting it; a refused preflight writes nothing; do-not-promote is findings and a missing program is
+  refused; experiments in custodian's build cannot write code itself; nested lines run under the writer the line
+  holds; the resident reaches the same outcome as the command line.
+
+`cargo test --all-features`: 101 passed, 0 failed, 1 ignored.
+
 ## 0.4.0 (2026-10-30)
 
 The laboratory-control repair (2026-10-30), on custodian_kit 0.4.1: an experiment is a job opened over its specimen,
