@@ -1,6 +1,6 @@
 [package]
 name = "custodian"
-version = "0.5.0"
+version = "0.5.1"
 edition = "2021"
 # ob-serve-a-bowl 0.2 needs 1.88; xccute 0.3.1 (the job lock is std File::try_lock) needs 1.89; experiments 0.3.2
 # (the hosted `experiment run`) needs 1.90

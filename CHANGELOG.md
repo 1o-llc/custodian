@@ -1,5 +1,37 @@
 # Changelog
 
+## 0.5.1 (2026-11-01)
+
+An experiment's result wakes the task waiting for it (the integration's second pass). The result stays where
+experiments' `ExperimentPaths` lays it out under custodian's layout, and the `experiment run` line's receipt keeps
+it as its output, as in 0.5.0; what is new is the signal. The observers see that an experiment has a result, ob-serve-a-bowl's protocol
+bridge carries a wake to the one task that registered for it on waker_protocol's scheduler, and that task reads the
+result back from what custodian keeps. The wake carries no result and the observers make no path. Patch: no line, flag or schema
+changes; `watch` shows an experiment's result. Links are pinned to ba144c0.
+
+- **The event** ([experimenting.rs L54](https://github.com/1o-llc/custodian/blob/ba144c0/src/experimenting.rs#L54)): once the result is written, the journal gets an
+  `experiment` event, its subject the experiment's id, its state the promotion, its detail the result's path exactly
+  as the line's output names it, in the job.
+- **The observable state** ([observe.rs L32](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L32), [L96](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L96), [L211](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L211)):
+  `FIELD_EXPERIMENT`, `RunEvent::Experiment`, and each experiment's latest disposition and kept path in `RunState`;
+  every `watch` level shows it.
+- **The waiting seam** ([`wait_for_experiment`](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L173)): one cold observer per waiting task, the
+  experiment class of change its field mask, "experiment X has a result" its predicate, rising-edge (an unchanged
+  state never wakes it again), the task's id its target. [`send_wakes`](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L185) and
+  [`feed`](https://github.com/1o-llc/custodian/blob/ba144c0/src/observe.rs#L191) (the journal's events, published, then the wakes) use ob-serve-a-bowl's
+  `protocol` bridge into the scheduler's handle; no other wake protocol.
+- **The waiter** ([runtime.rs L222](https://github.com/1o-llc/custodian/blob/ba144c0/src/runtime.rs#L222)): `ExperimentWait`, a waker_protocol task that waits
+  until woken and then reads the result through [`latest_result`](https://github.com/1o-llc/custodian/blob/ba144c0/src/experimenting.rs#L76): the newest event's
+  path, which must be an `experiment run` receipt's output, and the result read there.
+- `ob-serve-a-bowl` with its `protocol` feature.
+- Tests: `tests/experiment_wake.rs`: two tasks wait for experiments A and B; a real hosted run of A wakes A alone,
+  which reads the result A's run wrote; B is not polled until B's run; A's run again wakes no one; an event naming
+  a path no receipt kept is refused; `watch` shows the result at every level; the observers and the runtime make no
+  result path. `observe.rs`: the event carries the line's path verbatim; a waiter is woken once for its own
+  experiment, to its task, and never for another change.
+
+`cargo test --all-features`: 108 passed, 0 failed, 1 ignored (stable and Rust 1.90).
+
 ## 0.5.0 (2026-11-01)
 
 `experiments` hosted by custodian (the integration's first pass), on experiments 0.3.2. An experiment's runner still
