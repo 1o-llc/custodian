@@ -97,6 +97,7 @@ pub fn handle(ctx: &mut Ctx, line: &Line) -> Result<Ran> {
         Line::JobClose(l) => need_agent(ctx).and_then(|_| crate::jobs::close_as(ctx, so(&l.name).as_deref(), so(&l.reject).as_deref())),
         Line::JobMeasure(l) => need_agent(ctx).and_then(|_| crate::jobs::measure(ctx, l)),
         Line::Delta(l) => crate::deltas::delta(ctx, l),
+        Line::ExperimentRun(l) => crate::experimenting::run(ctx, l),
         Line::JobBrief(l) => need_agent(ctx).and_then(|_| crate::jobs::brief(ctx, so(&l.name).as_deref(), l.bundle)),
         Line::JobImport(l) => need_agent(ctx).and_then(|_| crate::jobs::import(ctx, Path::new(&s(&l.bundle)), crate::runtime::Limit::default())),
         Line::JobList(_) => need_agent(ctx).and_then(|_| crate::jobs::list(ctx)),

@@ -390,6 +390,12 @@ impl External {
         External { logical_id: logical_id.into(), preview, command: cmd.to_command(), ok: cmd.ok_codes(), statuses: &[] }
     }
 
+    /// An argv command spec (xccute_runtime's `CommandSpec`): the program and its words as given, no shell between.
+    pub fn argv(logical_id: &str, cmd: &xccute_runtime::CommandSpec) -> External {
+        let preview = CommandPreview::new(OsString::from(&cmd.program), cmd.path.iter().chain(&cmd.args).map(OsString::from).collect());
+        External { logical_id: logical_id.into(), preview, command: cmd.to_command(), ok: cmd.ok_codes(), statuses: &[] }
+    }
+
     /// Sets the directory the program runs in.
     pub fn in_dir(mut self, dir: &Path) -> External {
         self.command.current_dir(dir);

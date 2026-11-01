@@ -165,6 +165,7 @@ macro_rules! leaf {
 #[composite(command = "bundle", ty = Bundle, init = "target")]
 #[composite(surface = "archive", ty = Archive)]
 #[composite(command = "delta", ty = Delta, init = "kind")]
+#[composite(surface = "experiment", ty = Experiment)]
 #[composite(command = "sweep", ty = Sweep, init = "dir")]
 #[composite(surface = "count", ty = Count)]
 #[composite(command = "serve", ty = Serve)]
@@ -213,6 +214,12 @@ pub struct Job;
 #[composite(command = "check", ty = ArchiveCheck)]
 #[composite(command = "verify", ty = ArchiveVerify, init = "file")]
 pub struct Archive;
+
+/// `custodian experiment run`.
+#[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
+#[subcommand(segment = "experiment")]
+#[composite(command = "run", ty = ExperimentRun, init = "spec")]
+pub struct Experiment;
 
 /// `custodian receipts merge`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
@@ -1789,7 +1796,7 @@ macro_rules! lines {
         pub const DECLARED: &[(&str, Declared)] = &[$((concat!($($word, " "),+), $ty::DECLARED),)*];
 
         /// Every surface the root has, by its segment.
-        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise", "receipts", "archive"];
+        pub const SURFACES: &[&str] = &["agent", "job", "test", "diagnostics", "count", "self", "mcp", "plan", "linkage", "exercise", "receipts", "archive", "experiment"];
 
         impl Line {
             /// The words that name the line: `job start`.
@@ -1853,6 +1860,35 @@ macro_rules! lines {
     };
 }
 
+leaf! {
+    /// Runs an `experiments` experiment hosted by custodian: each protocol, measurement and verification command a
+    /// declared line with its receipt, each bounded change made through custodian's preflight and transform
+    /// (code_passenger the writer), the experiment's result kept in the job's data folder and named as this run's
+    /// output. Done when the experiment promotes, findings when it does not or is undecided (the conclusion is the
+    /// result's), refused when it could not run to its conclusion.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "run")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    pub struct ExperimentRun {
+        /// The experiment spec: 1o, JSON, TOML, YAML or YML (`experiments`' own formats).
+        #[builder(init_required, into)]
+        #[arg(positional, each = plain)]
+        pub spec: OsString,
+        /// Where the run is kept (`experiments`' storage base): the job's `data/experiments` by default, else the
+        /// project's.
+        #[builder(into)]
+        #[arg(positional, each = plain)]
+        pub storage: Option<OsString>,
+        /// The job the run is part of (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+    }
+}
+
 lines! {
     Init(Init) = ["init"] in root => read_init;
     AgentInit(AgentInit) = ["agent", "init"] in Agent => read_agent_init;
@@ -1884,6 +1920,7 @@ lines! {
     ArchiveMake(ArchiveMake) = ["archive", "make"] in Archive => read_archive_make;
     ArchiveCheck(ArchiveCheck) = ["archive", "check"] in Archive => read_archive_check;
     ArchiveVerify(ArchiveVerify) = ["archive", "verify"] in Archive => read_archive_verify;
+    ExperimentRun(ExperimentRun) = ["experiment", "run"] in Experiment => read_experiment_run;
     Sweep(Sweep) = ["sweep"] in root => read_sweep;
     CountOf(CountOf) = ["count", "of"] in Count => read_count_of;
     CountReport(CountReport) = ["count", "report"] in Count => read_count_report;
@@ -2113,6 +2150,10 @@ fn read_archive_check(w: &mut Words) -> Result<ArchiveCheck> {
     Ok(ArchiveCheck { workspace_deps: w.flag("--workspace-deps"), reveal: w.flag("--reveal"), attach: w.kvs("--attach")?.into_iter().map(OsString::from).collect(), job: kv(w, "--job")?, routes: positionals(w) })
 }
 
+fn read_experiment_run(w: &mut Words) -> Result<ExperimentRun> {
+    Ok(ExperimentRun { job: kv(w, "--job")?, spec: need(w, "experiment spec (experiment run SPEC [STORAGE])", "experiment run")?, storage: pos(w) })
+}
+
 fn read_archive_verify(w: &mut Words) -> Result<ArchiveVerify> {
     Ok(ArchiveVerify { job: kv(w, "--job")?, file: need(w, "archive (archive verify FILE.zip)", "archive verify")? })
 }
@@ -2277,6 +2318,8 @@ mod tests {
             Custodian::job().close().name("batch").reject("slower_than_the_base").argv(),
             Custodian::job().measure("bench.json").label("throughput").job("j-1").argv(),
             Custodian::delta("fmt").base("../baseline").job("j-1").argv(),
+            Custodian::experiment().run("round49.json").storage("runs").job("j-1").argv(),
+            Custodian::experiment().run("round49.json").argv(),
             Custodian::job().brief().name("batch").bundle().argv(),
             Custodian::job().import("x.bundle").argv(),
             Custodian::job().list().argv(),

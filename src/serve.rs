@@ -45,6 +45,7 @@ pub enum RequestKind {
     RunSpec,
     RunJob,
     ImportBundle,
+    RunExperiment,
     Status,
     Stop,
 }
@@ -81,6 +82,7 @@ pub fn kind_of(line: &Line) -> Option<RequestKind> {
         Line::Run(_) => Some(RequestKind::RunSpec),
         Line::JobStart(_) => Some(RequestKind::RunJob),
         Line::JobImport(_) => Some(RequestKind::ImportBundle),
+        Line::ExperimentRun(_) => Some(RequestKind::RunExperiment),
         Line::Stop(_) => Some(RequestKind::Stop),
         Line::Serve(_) => Some(RequestKind::Status),
         _ => None,
@@ -116,6 +118,7 @@ pub fn absolute(line: &Line, here: &Path) -> Line {
         Line::ArchiveMake(a) => Line::ArchiveMake(surface::ArchiveMake { out: a.out.as_ref().map(|o| here.join(o).into_os_string()), ..a.clone() }),
         Line::JobMeasure(m) => Line::JobMeasure(surface::JobMeasure { file: abs(&Some(m.file.clone())).unwrap_or_else(|| m.file.clone()), ..m.clone() }),
         Line::Delta(d) => Line::Delta(surface::Delta { base: abs(&d.base), ..d.clone() }),
+        Line::ExperimentRun(e) => Line::ExperimentRun(surface::ExperimentRun { spec: abs(&Some(e.spec.clone())).unwrap_or_else(|| e.spec.clone()), storage: e.storage.as_ref().map(|o| here.join(o).into_os_string()), ..e.clone() }),
         Line::JobStart(j) => Line::JobStart(surface::JobStart { specimen: abs(&j.specimen), ..j.clone() }),
         Line::ArchiveVerify(v) => Line::ArchiveVerify(surface::ArchiveVerify { file: abs(&Some(v.file.clone())).unwrap_or_else(|| v.file.clone()), ..v.clone() }),
         other => other.clone(),

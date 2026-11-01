@@ -27,7 +27,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        rust: [stable, "1.89"]
+        rust: [stable, "1.90"]
     steps:
       - uses: actions/checkout@v6
       - name: Clone the sibling crates this one builds against (../<name>)

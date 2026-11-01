@@ -606,6 +606,31 @@
     }
   },
   {
+    "name": "experiment_run",
+    "description": "Runs `custodian experiment run`, a declared line; every run leaves a receipt. An experiment run under custodian: its commands with receipts, its bounded changes through preflight and transform; the result's path is the output, done only when it promotes.\n\nRuns an `experiments` experiment hosted by custodian: each protocol, measurement and verification command a declared line with its receipt, each bounded change made through custodian's preflight and transform (code_passenger the writer), the experiment's result kept in the job's data folder and named as this run's output. Done when the experiment promotes, findings when it does not or is undecided (the conclusion is the result's), refused when it could not run to its conclusion.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "job": {
+          "description": "The job the run is part of (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "spec": {
+          "description": "The experiment spec: 1o, JSON, TOML, YAML or YML (`experiments`' own formats). (a word on the line)",
+          "type": "string"
+        },
+        "storage": {
+          "description": "Where the run is kept (`experiments`' storage base): the job's `data/experiments` by default, else the project's. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "spec"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "count",
     "description": "Runs `custodian count of`, a declared line; every run leaves a receipt.\n\nFiles, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share.",
     "inputSchema": {

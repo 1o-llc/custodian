@@ -187,6 +187,7 @@ moved to done. Exit status 0 is done, 1 is findings (a check or a test failed), 
 | `self install\|uninstall\|status [--skill-dir DIR]` | install custodian through the installation crate, the receipt in the journal, the agent skill beside the receipt (`--skill-dir` chooses where); `status` names the skill |
 | `preflight SPEC [--job ID]`, `preflight --batch LIST` | what a change spec entails over the code as it is, and whether it is authorized; nothing written. `--batch`: every spec LIST names over one reading of the code, each checked as its own preflight checks it, one receipt listing each verdict (the batch transform's gate) |
 | `transform SPEC [--write]`, `transform --revert RECORD` | the change spec made by code_passenger on its preflight receipt; a record's files put back |
+| `experiment run SPEC [STORAGE] [--job ID]` | an `experiments` run hosted here: each protocol, measurement and verification command a declared argv line with its receipt in the job, each bounded change made through `preflight` and `transform` (code_passenger the writer) with its transform record as the experiment's evidence; the `ExperimentResult` kept in the job's `data/experiments` (else the project's, or STORAGE) and named as the run's output; done when the experiment promotes, findings when it does not or is undecided, refused when it cannot run to its conclusion; the resident runs it too |
 | `plan make INTENT [--name N]`, `plan approve PLAN STEP [--operation OP]`, `plan show PLAN` | an intent's plan (where, reuse, what is new, impact, cost, decisions, steps); a step as a change spec |
 | `decide [ID ANSWER] [--why TEXT]` | the open decisions together; one answered, never asked again |
 | `linkage add NAME --kind K --why TEXT --bind A --bind B`, `linkage check [TARGET]` | why declarations are bound together, each bind resolved; stale, to review or holding |
@@ -411,7 +412,7 @@ one page: [docs/COMPOSITION.md](docs/COMPOSITION.md).
 ## Releasing
 
 Bump `version` in Cargo.toml and give CHANGELOG.md a dated `## <version> (YYYY-MM-DD)` entry, then push to main.
-CI (`.github/workflows/ci.yml`) tests on stable and Rust 1.89, runs clippy, and publishes to crates.io
+CI (`.github/workflows/ci.yml`) tests on stable and Rust 1.90, runs clippy, and publishes to crates.io
 through trusted publishing; a version already on crates.io, or an entry still marked `(unreleased)`, publishes nothing.
 A custodian_kit version custodian needs is released first: the published crate takes the kit from crates.io.
 
@@ -452,4 +453,4 @@ the unit tests, `tests/cli.rs` (every subcommand on the fixture project in `test
 (bounded and unbounded jobs, the brief, decisions, plans, linkage, the journal rebuilt, the job lock, the help
 lines), `tests/mcp.rs` and `tests/runtime.rs` (checkpoint resume, the job queue). The bounded tests run
 code-passenger built from `../code_passenger` (or the directory `CUSTODIAN_TEST_PASSENGER` names) and say when
-they skip. Rust 1.89 or later.
+they skip. Rust 1.90 or later.

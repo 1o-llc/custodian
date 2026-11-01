@@ -69,6 +69,7 @@ liaise_proc_macro::liaise_codes! {
         NoChangeSpec = 2001 => "no change spec of that name or path",
         NoPlan = 2002 => "no plan of that name",
         LinkageArgs = 2003 => "a linkage record names its kind, its reason and two declarations or more",
+        ExperimentRefused = 2101 => "the experiment did not run to its conclusion",
     }
 }
 
