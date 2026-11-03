@@ -233,7 +233,7 @@ fn replay_spec(dir: &Path) -> PathBuf {
 /// is the experiment's evidence and the job's.
 #[test]
 fn a_bounded_replay_goes_through_custodians_preflight_and_code_passengers_transform() {
-    let Some(bin) = passenger_with_transform() else {
+    let Some(bin) = passenger_required() else {
         eprintln!("skipped: no code-passenger with the transform line (build ../code_passenger, or set CUSTODIAN_TEST_PASSENGER)");
         return;
     };

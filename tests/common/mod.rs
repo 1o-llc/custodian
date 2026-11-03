@@ -123,6 +123,16 @@ pub fn passenger_with_transform() -> Option<PathBuf> {
     })
 }
 
+/// [`passenger_with_transform`], for a test that must not be skipped where the writer was built: with
+/// `CUSTODIAN_TEST_PASSENGER_REQUIRED=1` (CI's stable leg, which builds it) a missing writer fails the test.
+pub fn passenger_required() -> Option<PathBuf> {
+    let found = passenger_with_transform();
+    if found.is_none() && std::env::var("CUSTODIAN_TEST_PASSENGER_REQUIRED").as_deref() == Ok("1") {
+        panic!("no code-passenger with the transform line, and CUSTODIAN_TEST_PASSENGER_REQUIRED=1 says one was built");
+    }
+    found
+}
+
 /// `custodian <words>` in `dir` with these variables set.
 pub fn run_env(dir: &Path, words: &[&str], vars: &[(&str, &str)]) -> Ran {
     let mut c = Command::new(BIN);

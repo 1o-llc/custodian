@@ -81,7 +81,8 @@ chrono = { version = "0.4", default-features = false, features = ["clock", "std"
 rmcp = { version = "3.5.1", optional = true, default-features = false, features = ["server", "transport-io"] }
 tokio = { version = "1", optional = true, features = ["rt", "sync"] }
 
-# differences_kit takes the folder's layout from custodian_kit: the one beside this crate, so there is one custodian_kit
+# the custodian_kit beside this crate, for any dependency that asks crates.io for a version it meets; differences_kit
+# 0.1.1 asks for ^0.3.1, which it does not, so differences_kit builds with its own custodian_kit 0.3.15: two are built
 [patch.crates-io]
 custodian_kit = { path = "../custodian_kit" }
 
