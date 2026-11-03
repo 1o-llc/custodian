@@ -1,5 +1,84 @@
 # Changelog
 
+## 0.7.0 (2026-11-03)
+
+`custodian experiment campaign CAMPAIGN [STORAGE] [--job JOB] [--plan] [--again]`: an experiments 0.4.0 campaign
+governed here. experiments owns what the campaign means (the plan, the designs, what a node's outcome makes of its
+candidate, the stops, the result); custodian owns every tree it touches: the workspaces, their state, the writer, the
+receipts and the order nodes run in. No new writer: every node is the declared `experiment run` line through
+`facade::execute`, its changes through custodian's `preflight` and `transform` (code_passenger the writer), and a
+rejected candidate is put back by the declared `transform --revert`. Minor, not patch: a new line, a new MCP tool, a
+new request kind on the socket, and experiments 0.4.0's types in this crate's API (`experimenting`). Links are pinned
+to 4a9caf1.
+
+- **The line** ([surface.rs L1914](https://github.com/1o-llc/custodian/blob/4a9caf1/src/surface.rs#L1914), [surface.rs L1702](https://github.com/1o-llc/custodian/blob/4a9caf1/src/surface.rs#L1702), [surface.rs L2204](https://github.com/1o-llc/custodian/blob/4a9caf1/src/surface.rs#L2204)): declared once; `--plan`
+  and `--again` together are refused; the MCP tool `experiment_campaign` is the declaration ([mcp.rs L85](https://github.com/1o-llc/custodian/blob/4a9caf1/src/mcp.rs#L85)); the
+  resident answers it ([serve.rs L87](https://github.com/1o-llc/custodian/blob/4a9caf1/src/serve.rs#L87), [serve.rs L124](https://github.com/1o-llc/custodian/blob/4a9caf1/src/serve.rs#L124)).
+- **The plan first** ([campaigning.rs L47](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L47)): the campaign and every experiment read and planned by experiments
+  before anything runs; a plan that does not hold is refused with every reason (CUST2102) and nothing is made.
+  `--plan` prints every node (id, spec and digest, after, from, workspace, assignment, block, group, treatment,
+  design, replicate), the workspaces, the groups and the waves to expect ([campaigning.rs L102](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L102)), and changes
+  nothing. A storage inside the governed root and outside `.custodian`, or holding the root, is refused
+  ([campaigning.rs L73](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L73)).
+- **The state** ([campaigning.rs L155](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L155)): every file custodian_kit's provenance reads (`tree_files`: `target`,
+  `.git`, `.passenger`, `.custodian`, `oneo.project.json` left out), its content and its mode, less the campaign's
+  `exclude`; a node runs only from its state parent's accepted digest, else it is refused
+  ([campaigning.rs L620](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L620)).
+- **Workspaces and one writer** ([campaigning.rs L432](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L432)): shared nodes run in this project, on the line's thread,
+  one after another; an isolated node gets a copy of its state parent's accepted state (kept under the run's
+  `states/` when reached, [campaigning.rs L502](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L502)), read back to the same digest, made a custodian folder of its own
+  by the declared `init` line ([campaigning.rs L553](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L553)), run on a thread of its own with its own `Ctx` and journal,
+  holding its own job lock ([campaigning.rs L545](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L545)). The line holds the process's writer and the project's job
+  lock for the whole campaign ([campaigning.rs L68](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L68)); each workspace has an admission of one
+  ([campaigning.rs L624](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L624)); at most `max_parallel` nodes hold a slot, released only when the node's end is
+  recorded.
+- **Undeclared changes and the put-back** ([campaigning.rs L581](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L581), [campaigning.rs L600](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L600),
+  [campaigning.rs L694](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L694)): the candidate is compared with the start; a change no transform record of the node
+  accounts for goes to experiments' decision by rigor. A candidate not accepted is put back by `transform --revert` of
+  each record the node's `transform` receipts name, newest first, then read again: equal to the start (restored) or
+  the workspace is discarded (a shared one stops the campaign).
+- **Strict** ([campaigning.rs L281-L283](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L281-L283)): refused before anything runs when the writer's digest cannot be read;
+  the result names each tool with its binary's digest ([campaigning.rs L392](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L392)) and what custodian enforced for
+  every node, and what it does not control ([campaigning.rs L411](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L411)).
+- **Resume** ([campaigning.rs L274](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L274), [campaigning.rs L292](https://github.com/1o-llc/custodian/blob/4a9caf1/src/campaigning.rs#L292)): progress is written when a node starts and
+  ends; the same line again resumes the run it names, refused when the campaign, an experiment, a change spec, a
+  factor, a design or the plan moved (CUST2102) or when the project is not at the accepted state the run recorded
+  (CUST2103); a completed run answers again over the state it left; `--again` runs fresh.
+- **The result** is the line's output, kept under `runs/<run>/result.json` beside the plan; a `campaign` event names
+  it in the journal. Done when every candidate is accepted, findings when some are not, refused (CUST2102, the
+  result kept) when a node was refused or failed.
+- **A command's `env`** is given to its program as declared ([experimenting.rs L138](https://github.com/1o-llc/custodian/blob/4a9caf1/src/experimenting.rs#L138)), so a campaign's binding
+  reaches every hosted command and its record.
+- **A preflight that does not authorize** a hosted change is refused as the kit's `NotAuthorized` (CUST0034), not
+  CUST2101 ([experimenting.rs L173](https://github.com/1o-llc/custodian/blob/4a9caf1/src/experimenting.rs#L173)): custodian refused the change; CUST2101 stays for a run that failed. The
+  campaign tells a refused node from a failed one by it.
+- `maint::passenger_path` (the code-passenger on PATH) ([maint.rs L219](https://github.com/1o-llc/custodian/blob/4a9caf1/src/maint.rs#L219)).
+- **CI** ([ci.yml L24-L27](https://github.com/1o-llc/custodian/blob/4a9caf1/.github/workflows/ci.yml#L24-L27)): experiments is a sibling (`jameshuntt/experiments`, the branch of this
+  push's name, else its default) and a path dependency ([Cargo.toml L45](https://github.com/1o-llc/custodian/blob/4a9caf1/Cargo.toml#L45)); the `package` job and the publish retry
+  wait while experiments' version is not on crates.io, as for custodian_kit ([ci.yml L110](https://github.com/1o-llc/custodian/blob/4a9caf1/.github/workflows/ci.yml#L110),
+  [ci.yml L172](https://github.com/1o-llc/custodian/blob/4a9caf1/.github/workflows/ci.yml#L172)).
+
+Tests (`tests/campaign.rs`, through custodian, experiments and code_passenger's binary, replays for the transitions):
+[`a_sequence_evolves_one_accepted_state_through_preflight_and_transform`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L219),
+[`a_rejected_candidate_is_put_back_exactly_and_the_next_starts_from_the_accepted_state`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L275),
+[`an_undecided_candidate_is_put_back_unless_the_policy_accepts_it`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L314),
+[`a_refused_node_writes_nothing_and_stops_the_campaign`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L334),
+[`parallel_branches_start_from_one_state_in_isolated_workspaces_and_fan_in_without_merging`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L363),
+[`a_repeat_runs_independent_trials_and_summarizes_them`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L404),
+[`a_factorial_sweep_runs_its_exact_expansion_with_each_assignment_bound`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L449),
+[`one_factor_at_a_time_runs_one_moved_factor_per_treatment`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L487),
+[`the_rigor_decides_what_an_undeclared_change_makes_of_a_candidate`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L512),
+[`isolated_nodes_run_at_most_max_parallel_at_once_and_shared_nodes_one_at_a_time`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L552),
+[`an_interrupted_campaign_resumes_without_running_a_completed_node_again`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L574) (the process killed while B runs;
+stale resumes refused),
+[`a_plan_is_shown_and_refused_without_touching_anything`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L638) (the 240-trial matrix, `--plan`),
+[`fifty_ordered_replays_take_one_governed_state_from_state01_to_state51`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L662), the line, the MCP tool and the
+resident; unit tests for the state's exclusions and modes, undeclared changes and storage. `cargo test --all-features`
+with code-passenger 0.6.0 (430eae7) as the writer: 129 passed, 0 failed, 1 ignored (stable, the writer required, and
+Rust 1.90); `clippy --all-targets --all-features -D warnings` clean. `cargo package`: until experiments 0.4.0 is on
+crates.io the .crate does not resolve (the package job says so); with experiments patched to its checkout the .crate
+builds.
+
 ## 0.6.0 (2026-11-03)
 
 On custodian_kit 0.5.0: `replay`, an exact transition of whole files, is a word of the change vocabulary, and a
