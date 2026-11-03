@@ -1,5 +1,35 @@
 # Changelog
 
+## 0.6.0 (2026-11-03)
+
+On custodian_kit 0.5.0: `replay`, an exact transition of whole files, is a word of the change vocabulary, and a
+hosted experiment's bounded change can be one. Nothing in custodian's hosted path changes: `Hosted::apply_change`
+runs the nested `preflight` and `transform --write` lines through `facade::execute` under the writer the
+`experiment run` line holds, and code_passenger 0.6.0 is the one writer. Minor, not patch: the kit's types in this
+crate's API (`codes::Refusal`, `changes::write_spec`, `maint::passenger`, ...) are 0.5.0's, and 0.5.1 stays on
+0.4.1. Nothing is removed. Links are pinned to 2d430ff (b1fd1f5 for CI; 44dda97 for lines unchanged).
+
+- **The word.** The operation words a line takes (`plan approve --operation`, `exercise --ops`) are the kit's
+  vocabulary ([surface.rs L1692](https://github.com/1o-llc/custodian/blob/44dda97/src/surface.rs#L1692), [L1648](https://github.com/1o-llc/custodian/blob/44dda97/src/surface.rs#L1648)), so `replay` is one with no
+  change here; the MCP tool list a host sees names it ([mcp_tools.json L836](https://github.com/1o-llc/custodian/blob/2d430ff/tests/golden/mcp_tools.json#L836)).
+  custodian_kit 0.5.0 ([Cargo.toml L27](https://github.com/1o-llc/custodian/blob/2d430ff/Cargo.toml#L27)).
+- **A hosted replay, end to end.** [`a_bounded_replay_goes_through_custodians_preflight_and_code_passengers_transform`](https://github.com/1o-llc/custodian/blob/2d430ff/tests/experiments.rs#L235):
+  `custodian experiment run` with a bounded replay ([the spec](https://github.com/1o-llc/custodian/blob/2d430ff/tests/experiments.rs#L214): the library replaced,
+  a measurement script made with mode 755, notes deleted, payloads beside the spec, outside the project); custodian's
+  preflight authorizes it in the job; one code-passenger `transform --spec ... --preflight N --write` line writes it
+  (every other code-passenger line of the run is the passenger's own store); the files and the mode are exactly the
+  kept state's, and the candidate is measured by running the script the replay made; the result is kept in the job;
+  the transform record (`replay`, the three files in path order, written on that preflight by code_passenger) is the
+  experiment's evidence; the job's close counts it and leaves no line uncovered.
+  [`a_replay_that_does_not_hold_is_refused_by_the_preflight_and_writes_nothing`](https://github.com/1o-llc/custodian/blob/2d430ff/tests/experiments.rs#L301):
+  its last file not as declared before, the preflight refuses it, no transform runs, nothing is written.
+- **CI** ([`package`](https://github.com/1o-llc/custodian/blob/b1fd1f5/.github/workflows/ci.yml#L77)): the crate as crates.io will hold it, built on every push
+  against crates.io's custodian_kit (`[patch.crates-io]` is not in the .crate); while the kit version it names is not
+  published yet it says so and passes, and `cargo publish` builds the same .crate once the kit is there.
+
+`cargo test --all-features` (with code-passenger 0.6.0 as the writer): 110 passed, 0 failed, 1 ignored (stable and
+Rust 1.90).
+
 ## 0.5.1 (2026-11-01)
 
 An experiment's result wakes the task waiting for it (the integration's second pass). The result stays where
