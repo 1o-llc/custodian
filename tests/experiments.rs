@@ -199,6 +199,120 @@ fn a_bounded_change_goes_through_custodians_preflight_and_transform() {
     assert!(!closing["transforms"].as_array().unwrap().is_empty(), "{closing}");
 }
 
+/// The library as the kept state 2 has it: one pass over the slots.
+const LIB_AFTER: &str = "pub struct Registry<const WORKS: usize, const SUBSCRIBERS: usize> {\n    slots: [Option<u64>; WORKS],\n}\n\nimpl<const WORKS: usize, const SUBSCRIBERS: usize> Registry<WORKS, SUBSCRIBERS> {\n    pub fn new() -> Self {\n        Registry { slots: [None; WORKS] }\n    }\n\n    pub fn first_free(&self) -> Option<usize> {\n        let mut found = None;\n        for (index, slot) in self.slots.iter().enumerate() {\n            if slot.is_none() && found.is_none() {\n                found = Some(index);\n            }\n        }\n        found\n    }\n}\n";
+
+/// The kept state's measurement script: what the candidate is measured by, run as a program (its mode is the replay's).
+const MEASURE: &str = "#!/bin/sh\nprintf 90\n";
+
+fn sha(bytes: &[u8]) -> String {
+    custodian_kit::change::sha256_hex(bytes)
+}
+
+/// A replay to the kept state 2, its payloads beside it in `dir`: the library replaced, the measurement script made
+/// executable, the old notes deleted. Its path.
+fn replay_spec(dir: &Path) -> PathBuf {
+    std::fs::create_dir_all(dir.join("state-2")).unwrap();
+    std::fs::write(dir.join("state-2/lib.rs"), LIB_AFTER).unwrap();
+    std::fs::write(dir.join("state-2/measure.sh"), MEASURE).unwrap();
+    let text = format!(
+        "name = \"state-2\"\nobjective = \"the kept state 2, exactly\"\noperation = \"replay\"\ntarget = \"*\"\n\n[[replay]]\npath = \"src/lib.rs\"\nbefore_sha256 = \"{}\"\nafter_sha256 = \"{}\"\npayload = \"state-2/lib.rs\"\n\n[[replay]]\npath = \"scripts/measure.sh\"\nabsent_before = true\nafter_sha256 = \"{}\"\npayload = \"state-2/measure.sh\"\nmode = \"755\"\n\n[[replay]]\npath = \"notes.txt\"\nbefore_sha256 = \"{}\"\ndelete = true\n",
+        sha(LIB.as_bytes()),
+        sha(LIB_AFTER.as_bytes()),
+        sha(MEASURE.as_bytes()),
+        sha(b"old notes\n")
+    );
+    let p = dir.join("state-2.toml");
+    std::fs::write(&p, text).unwrap();
+    p
+}
+
+/// A hosted experiment whose bounded change is a replay: custodian's preflight authorizes the whole transition,
+/// custodian's transform line has code_passenger write it (the only writer), the files and their modes are exactly the
+/// kept state's, the candidate is measured by the script the replay made, the result is kept, and the transform record
+/// is the experiment's evidence and the job's.
+#[test]
+fn a_bounded_replay_goes_through_custodians_preflight_and_code_passengers_transform() {
+    let Some(bin) = passenger_with_transform() else {
+        eprintln!("skipped: no code-passenger with the transform line (build ../code_passenger, or set CUSTODIAN_TEST_PASSENGER)");
+        return;
+    };
+    let c = project("replay", true);
+    std::fs::write(c.join("notes.txt"), "old notes\n").unwrap();
+    ok(&c, &["job", "start", "exp", "--intent", "the kept state 2"], 0);
+    let spec = experiment("replay", |s, change| {
+        let replay = replay_spec(change.parent().unwrap());
+        s.mutation = MutationPlan { mode: MutationMode::Bounded, changes: vec![MutationChange { label: "state 2".into(), spec: replay }], ..MutationPlan::default() };
+        // the candidate is measured by the script the replay made, run as a program
+        s.measurements.measurements[1].command = command("candidate latency", "./scripts/measure.sh", &[]);
+        s.verification.commands = vec![command("state 2", "test", &["!", "-e", "notes.txt"])];
+    });
+    let out = ok_with(&c, &["experiment", "run", spec.to_str().unwrap()], Some(&bin), 0);
+    let (rel, result) = result_of(&c, &out);
+    assert!(rel.starts_with(".custodian/state/jobs/running/exp/data/experiments/"), "{rel}");
+    assert_eq!(result.promotion, PromotionDecision::Promote, "{out}");
+    assert!(result.verification.passed, "{out}");
+    // the files and modes are exactly the kept state's
+    use std::os::unix::fs::PermissionsExt;
+    assert_eq!(std::fs::read_to_string(c.join("src/lib.rs")).unwrap(), LIB_AFTER);
+    assert_eq!(std::fs::read_to_string(c.join("scripts/measure.sh")).unwrap(), MEASURE);
+    assert_eq!(std::fs::metadata(c.join("scripts/measure.sh")).unwrap().permissions().mode() & 0o777, 0o755);
+    assert!(!c.join("notes.txt").exists());
+    // custodian's preflight authorized it, in the job; code_passenger's transform line wrote it on that receipt
+    let job = receipt(&c, seq_of(&out))["job"].as_str().unwrap().to_string();
+    let all = receipts(&c);
+    // the preflight's own receipt (the one bound to the spec's digest; the line's receipt beside it is the facade's)
+    let pre: Vec<&serde_json::Value> = all.iter().filter(|r| r["command"] == "preflight" && r["spec_hash"].is_string()).collect();
+    assert_eq!(pre.len(), 1, "{pre:?}");
+    assert_eq!((pre[0]["exit_code"].as_i64(), pre[0]["job"].as_str(), pre[0]["reason"].as_str()), (Some(0), Some(job.as_str()), Some("authorized")), "{}", pre[0]);
+    // one writer: the one code-passenger transform line, with --write, on the preflight's receipt (the other
+    // code-passenger lines of the run, the passenger's own store and checkpoints, write no file of the tree)
+    let passenger: Vec<&str> = all.iter().filter(|r| r["runner"] == "line").filter_map(|r| r["line"].as_str()).filter(|l| l.starts_with("code-passenger ")).collect();
+    assert!(passenger.iter().all(|l| l.contains(" transform --spec ") || l.contains(" passenger ")), "{passenger:?}");
+    let writers: Vec<&serde_json::Value> = all.iter().filter(|r| r["runner"] == "line" && r["line"].as_str().is_some_and(|l| l.starts_with("code-passenger ") && l.contains(" transform "))).collect();
+    assert_eq!(writers.len(), 1, "{writers:?}");
+    let words = writers[0]["line"].as_str().unwrap();
+    assert!(words.contains(" transform --spec ") && words.contains("state-2.toml") && words.contains("--write") && words.contains(&format!("--preflight {}", pre[0]["seq"])), "{words}");
+    assert_eq!((writers[0]["command"].as_str(), writers[0]["job"].as_str()), (Some("transform"), Some(job.as_str())));
+    // the transform record: the replay, the files it names exactly, written on that preflight by code_passenger
+    let m = &result.mutations[0];
+    let record = m.transform_record.clone().expect("a transform record");
+    assert!(record.starts_with(c.join(".custodian/state/jobs/running/exp/data/transforms")), "{}", record.display());
+    let t: custodian_kit::transform::TransformRecord = serde_json::from_str(&std::fs::read_to_string(&record).unwrap()).unwrap();
+    assert!(t.written && t.writer.as_deref().unwrap_or("").starts_with("code_passenger "), "{t:?}");
+    assert_eq!(t.operation, "replay");
+    assert_eq!(t.preflight_seq, pre[0]["seq"].as_i64());
+    let files: Vec<(&str, &str, &str)> = t.files.iter().map(|f| (f.path.as_str(), f.before.as_str(), f.after.as_str())).collect();
+    let (old, lib, new, measure) = (sha(b"old notes\n"), sha(LIB.as_bytes()), sha(LIB_AFTER.as_bytes()), sha(MEASURE.as_bytes()));
+    assert_eq!(files, [("notes.txt", old.as_str(), "none"), ("scripts/measure.sh", "none", measure.as_str()), ("src/lib.rs", lib.as_str(), new.as_str())]);
+    assert!(t.postconditions.iter().all(|(_, h)| *h) && t.postconditions.iter().any(|(p, _)| p == &format!("replay scripts/measure.sh: sha256 {measure}, mode 755")), "{:?}", t.postconditions);
+    let kinds: Vec<&str> = result.evidence.iter().map(|e| e.kind.as_str()).collect();
+    assert_eq!(kinds, ["code_passenger_transform", "custodian_preflight_receipt", "custodian_transform_receipt"]);
+    // the job's close counts the replay as a transform's, and every line it wrote is covered by it
+    ok(&c, &["job", "close"], 0);
+    let closing: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(c.join(".custodian/state/jobs/done/exp/closing.json")).unwrap()).unwrap();
+    assert!(!closing["transforms"].as_array().unwrap().is_empty(), "{closing}");
+    assert!(closing["uncovered"].as_array().is_none_or(|u| u.is_empty()), "{closing}");
+}
+
+/// A replay whose last file is not as declared before is refused by custodian's preflight: nothing is written, no
+/// transform runs, and the run is refused.
+#[test]
+fn a_replay_that_does_not_hold_is_refused_by_the_preflight_and_writes_nothing() {
+    let c = project("replay-refused", true);
+    std::fs::write(c.join("notes.txt"), "other notes\n").unwrap();
+    let spec = experiment("replay-refused", |s, change| {
+        let replay = replay_spec(change.parent().unwrap());
+        s.mutation = MutationPlan { mode: MutationMode::Bounded, changes: vec![MutationChange { label: "state 2".into(), spec: replay }], ..MutationPlan::default() };
+    });
+    let r = run(&c, &["experiment", "run", spec.to_str().unwrap()]);
+    assert_eq!(r.code, 2, "{}", r.all());
+    assert!(r.all().contains("notes.txt: as declared before: sha256 "), "{}", r.all());
+    assert_eq!(std::fs::read_to_string(c.join("src/lib.rs")).unwrap(), LIB, "nothing written");
+    assert!(!c.join("scripts").exists() && c.join("notes.txt").exists());
+    assert!(!receipts(&c).iter().any(|x| x["command"] == "transform"), "no transform ran");
+}
+
 #[test]
 fn a_refused_preflight_writes_nothing_and_refuses_the_run() {
     // no Cargo.lock: custodian's preflight refuses (CUST0046) before any transform

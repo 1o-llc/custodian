@@ -832,7 +832,8 @@
             "make_lib",
             "remove_dependency",
             "rename_paths",
-            "declare_feature"
+            "declare_feature",
+            "replay"
           ],
           "type": "string"
         },
