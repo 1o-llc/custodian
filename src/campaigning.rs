@@ -290,32 +290,42 @@ fn nameable(kept: &CampaignProgress, root: &Path, now: &StateIdentity) -> Result
 /// The state the campaign line leaves the project in, as a journal event (see [`STATE_EVENT`]).
 fn state_event(ctx: &Ctx, job: Option<&str>, campaign: &str, word: &str, digest: &str, storage: &Path) -> Result<()> {
     match ctx.journal.as_ref() {
-        Some(j) => j.event(STATE_EVENT, job, campaign, word, &format!("{digest} {}", storage.display()), None).map(|_| ()),
+        Some(j) => {
+            // `<digest> <storage>`, a reason after ` — ` when there is one
+            let (digest, why) = digest.split_once(" — ").map_or((digest, None), |(d, w)| (d, Some(w)));
+            let detail = format!("{digest} {}{}", storage.display(), why.map(|w| format!(" — {w}")).unwrap_or_default());
+            j.event(STATE_EVENT, job, campaign, word, &detail, None).map(|_| ())
+        }
         None => Ok(()),
     }
 }
 
-/// A run of campaign `id` (a first one in another storage, or `--again`) over a project this campaign last left in a
-/// state it could not put back: refused unless the project is at a state the line recorded (a start, an accepted
-/// state), whatever storage that was in.
-fn not_left_dirty(ctx: &Ctx, id: &str, now: &StateIdentity) -> Result<()> {
+/// A first run or `--again` of any campaign over a project some campaign line last left in a state it could not put
+/// back (that campaign's latest `campaign-state` is `left`): refused unless the project is at a state a campaign line
+/// recorded there (a start, an accepted state), whatever campaign and storage that was.
+fn not_left_dirty(ctx: &Ctx, _id: &str, now: &StateIdentity) -> Result<()> {
     let Some(j) = ctx.journal.as_ref() else { return Ok(()) };
-    let events: Vec<_> = j.events_since(0)?.into_iter().filter(|e| e.kind == STATE_EVENT && e.subject == id).collect();
-    let Some(last) = events.last() else { return Ok(()) };
-    if last.state != "left" {
-        return Ok(());
-    }
+    let events: Vec<_> = j.events_since(0)?.into_iter().filter(|e| e.kind == STATE_EVENT).collect();
     let digest = |d: &str| d.split(' ').next().unwrap_or_default().to_owned();
+    // each campaign's latest state; the unresolved ones are those whose latest is `left`
+    let mut latest: BTreeMap<&str, &crate::journal::Event> = BTreeMap::new();
+    for e in &events {
+        latest.insert(e.subject.as_str(), e);
+    }
+    let Some(left) = latest.values().filter(|e| e.state == "left").max_by_key(|e| e.n) else { return Ok(()) };
     if events.iter().any(|e| e.state != "left" && digest(&e.detail) == now.digest) {
         return Ok(());
     }
-    let storage = last.detail.split_once(' ').map(|(_, s)| s.to_owned()).unwrap_or_default();
-    let accepted = events.iter().rev().find(|e| e.state == "accepted" || e.state == "start").map(|e| digest(&e.detail)).unwrap_or_default();
+    let rest = left.detail.split_once(' ').map(|(_, s)| s.to_owned()).unwrap_or_default();
+    let (storage, why) = rest.split_once(" — ").map_or((rest.clone(), None), |(s, w)| (s.to_owned(), Some(w.to_owned())));
+    let accepted = events.iter().rev().find(|e| e.subject == left.subject && (e.state == "accepted" || e.state == "start")).map(|e| digest(&e.detail)).unwrap_or_default();
     Err(Code::CampaignStateMoved.refuse(format!(
-        "campaign {id} last left {} at {} (journal event {}, its storage {storage}): it could not put the project back, and the project is {} now, no state the line recorded; put it back to its last accepted state {accepted} (the run's result in {storage} names what was left), then run the line again",
+        "campaign {} last left {} at {} (journal event {}, its storage {storage}{}): it could not put the project back, and the project is {} now, no state a campaign line recorded; put it back to that campaign's last accepted state {accepted} (the run's result or progress in {storage} names what was left), then run the line again",
+        left.subject,
         ctx.root().display(),
-        digest(&last.detail),
-        last.n,
+        digest(&left.detail),
+        left.n,
+        why.map(|w| format!("; {w}")).unwrap_or_default(),
         now.digest
     )))
 }
@@ -347,7 +357,9 @@ fn recover(ctx: &mut Ctx, run_dir: &Path, plan: &CampaignPlan, id: &str, exclude
     }
     // only this node's own transforms: after its mark, and of a change spec its bound experiment names
     let own_specs = node_changes(run_dir, id, wctx.root());
-    let records: Vec<_> = records_since(wctx, mark.after_seq).into_iter().filter(|(_, r)| own_specs.iter().any(|(path, name)| record_spec(wctx.root(), r) == *path || r.spec_name == *name)).collect();
+    // a record is the node's when it ran one of the node's own change-spec files (and, when the record carries its
+    // digest, that file as it is): never by a change's name alone, which two files may share
+    let records: Vec<_> = records_since(wctx, mark.after_seq).into_iter().filter(|(_, r)| own_specs.iter().any(|(path, digest)| record_spec(wctx.root(), r) == *path && (r.spec_digest.is_empty() || digest.as_deref().is_none_or(|d| d == r.spec_digest)))).collect();
     let mut said = Vec::new();
     let (mut done, mut why, mut after) = (0, None, now.clone());
     // one at a time, newest first, reading the state after each: the walk stops at the node's start, never past it
@@ -365,8 +377,13 @@ fn recover(ctx: &mut Ctx, run_dir: &Path, plan: &CampaignPlan, id: &str, exclude
     }
     if why.is_some() || after != mark.start {
         let unnamed = unnamed_records(wctx, &file);
+        // the project left as it is, journaled: no run, in any storage, starts from it until it is put back
+        if shared {
+            let storage = run_dir.parent().and_then(Path::parent).unwrap_or(run_dir);
+            state_event(wctx, job.map(String::as_str), &plan.campaign_id, "left", &format!("{} — {id} was interrupted and could not be put back", after.digest), storage)?;
+        }
         return Err(Code::CampaignStateMoved.refuse(format!(
-            "{id} was interrupted in {}: {done} of {} of its transforms put back ({}){}; the workspace is {}, the state it started from {}{}: put it back to that state by hand, or run the campaign fresh with --again",
+            "{id} was interrupted in {}: {done} of {} of its transforms put back ({}){}; the workspace is {}, the state it started from {}{}: put the workspace back to the state it started from by hand, then run the line again",
             mark.workspace.display(),
             records.len(),
             said.join(" · "),
@@ -376,21 +393,21 @@ fn recover(ctx: &mut Ctx, run_dir: &Path, plan: &CampaignPlan, id: &str, exclude
             if unnamed.is_empty() {
                 String::new()
             } else {
-                format!("; on disk and named by no receipt (the process ended while code-passenger wrote): {} — each lists the files it wrote with their sha256 before and after; put each of those files back to its digest before (the bytes are kept in the workspace's .passenger objects under that digest), then run the line again", unnamed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))
+                format!("; on disk and named by no receipt (the process ended while code-passenger wrote): {} — each lists the files it wrote with their sha256 before and after; put each of those files back to its digest before (the bytes are kept in the workspace's .passenger objects under that digest)", unnamed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))
             }
         )));
     }
     Ok(format!("{id}: interrupted; {done} transforms put back newest first ({}); {} is at the state it started from; it runs again", said.join(" · "), mark.workspace.display()))
 }
 
-/// The change specs node `id`'s bound experiment names (`nodes/<id>/experiment.json`): each file, canonical, and the
-/// change's own name.
-fn node_changes(run_dir: &Path, id: &str, root: &Path) -> Vec<(PathBuf, String)> {
+/// The change specs node `id`'s bound experiment names (`nodes/<id>/experiment.json`): each file, canonical, and its
+/// digest as a transform record names it (`ChangeSpec::digest`), when it reads.
+fn node_changes(run_dir: &Path, id: &str, root: &Path) -> Vec<(PathBuf, Option<String>)> {
     let Ok(spec) = experiments::read_spec(run_dir.join(NODES).join(id).join("experiment.json")) else { return Vec::new() };
     spec.mutation.changes.iter().map(|c| {
         let path = if c.spec.is_absolute() { c.spec.clone() } else { root.join(&c.spec) };
-        let name = custodian_kit::change::ChangeSpec::from_path(&path).map(|s| s.name).unwrap_or_default();
-        (path.canonicalize().unwrap_or(path), name)
+        let digest = custodian_kit::change::ChangeSpec::from_path(&path).ok().map(|s| s.digest());
+        (path.canonicalize().unwrap_or(path), digest)
     }).collect()
 }
 

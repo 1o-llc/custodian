@@ -758,6 +758,10 @@ fn exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_aga
     assert!(other.code == 2 && other.all().contains("[CUST2103]") && other.all().contains("campaign dirty last left"), "{}", other.all());
     let first_elsewhere = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), elsewhere.to_str().unwrap()], Some(&bin));
     assert!(first_elsewhere.code == 2 && first_elsewhere.all().contains("campaign dirty last left"), "a first run in another storage too: {}", first_elsewhere.all());
+    // nor another campaign: the tree one campaign left dirty is no start for any
+    let another = doc(&a, "another.json", r#"{"id":"another","steps":[{"run":{"id":"Y","spec":"Y.json"}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", another.to_str().unwrap()], Some(&bin));
+    assert!(r.code == 2 && r.all().contains("[CUST2103]") && r.all().contains("campaign dirty last left"), "another campaign over it: {}", r.all());
     std::fs::remove_file(c.join("stray.txt")).unwrap();
     let fresh_run = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), "--again"], Some(&bin));
     assert_ne!(result_of(&c, &fresh_run.out).run_id, res.run_id, "the project put back to a state the run recorded: a fresh run");
@@ -955,4 +959,44 @@ fn a_write_no_receipt_names_is_refused_with_the_record_to_put_back() {
     let all = r.all();
     assert!(all.contains("[CUST2103]") && all.contains("B was interrupted") && all.contains("named by no receipt") && all.contains(&record.display().to_string()) && all.contains("put each of those files back to its digest before"), "{all}");
     assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(2), "nothing was put back by guess");
+}
+
+
+/// Two nodes whose change specs share a name in different files; B's mark names an older receipt and the process
+/// ended while code-passenger wrote B's change (no receipt names it). The resume never takes A's record for B's (a
+/// record is a node's by its change-spec file, never by name), so nothing is put back by guess; the refusal says to
+/// put the tree back and run the line again, and journals the project as left: `--again`, in another storage, refuses
+/// it too.
+#[test]
+fn a_record_is_matched_by_its_change_file_never_by_name_and_a_refused_recovery_is_journaled_as_left() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("same-name");
+    let a = fresh("campaign-same-name-artifacts");
+    let (da, db) = (a.join("ca"), a.join("cb"));
+    std::fs::create_dir_all(&da).unwrap();
+    std::fs::create_dir_all(&db).unwrap();
+    let ra = replay(&da, "same", &[File { path: "a.txt", before: None, after: Some("a\n"), mode: None }]);
+    let (s0, s1) = (state(0), state(1));
+    let rb = replay(&db, "same", &[File { path: "STATE.txt", before: Some(&s0), after: Some(&s1), mode: None }]);
+    experiment(&a, "A", Some(0), Some(&ra), 0, |_| {});
+    experiment(&a, "B", Some(0), Some(&rb), 1, |s| s.protocol.prepare.push(command("long enough to stop", "sleep", &["6"])));
+    let file = doc(&a, "same.json", r#"{"id":"same","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}}]}}]}"#);
+    let runs = c.join(".custodian/data/campaigns/same/runs");
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/same/progress.json", "B", |_| walk_files(&runs).iter().any(|p| p.ends_with("nodes/B/running.json")));
+    // B's change written with no receipt (the process ended mid-write); B's mark naming an older receipt
+    std::fs::write(c.join("STATE.txt"), state(1)).unwrap();
+    let mark = walk_files(&runs).into_iter().find(|p| p.ends_with("nodes/B/running.json")).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&mark).unwrap()).unwrap();
+    m["after_seq"] = serde_json::json!(0);
+    std::fs::write(&mark, m.to_string()).unwrap();
+    let r = run_with(&c, &["experiment", "campaign", file.to_str().unwrap()], Some(&bin));
+    assert_eq!(r.code, 2, "{}", r.all());
+    assert!(r.all().contains("0 of 0 of its transforms put back"), "A's record is not B's: {}", r.all());
+    assert!(r.all().contains("put the workspace back to the state it started from by hand, then run the line again") && !r.all().contains("fresh with --again"), "{}", r.all());
+    assert!(c.join("a.txt").exists(), "A's accepted change stands");
+    assert!(writes(&c).iter().all(|l| !l.contains(" --revert ")), "nothing put back by guess");
+    // journaled as left: --again in another storage refuses it
+    let other = a.join("other-storage");
+    let g = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), other.to_str().unwrap(), "--again"], Some(&bin));
+    assert!(g.code == 2 && g.all().contains("campaign same last left") && g.all().contains("B was interrupted and could not be put back"), "{}", g.all());
 }
