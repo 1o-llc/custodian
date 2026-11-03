@@ -1,7 +1,9 @@
 # Tests every push and pull request on the newest Rust and on the oldest one
-# this crate supports (rust-version in Cargo.toml), and runs clippy. On main, once
-# both pass, publishes to crates.io if Cargo.toml's version is not there yet and
-# CHANGELOG.md has its dated entry.
+# this crate supports (rust-version in Cargo.toml), runs clippy, and builds the
+# crate as crates.io will hold it (the .crate, its dependencies from crates.io).
+# On main, once tests and clippy pass, publishes to crates.io if Cargo.toml's
+# version is not there yet and CHANGELOG.md has its dated entry; `cargo publish`
+# builds the .crate against crates.io the same way before it uploads.
 # Publishing uses crates.io trusted publishing: no stored token.
 name: CI
 
@@ -72,6 +74,33 @@ jobs:
       - name: Clippy
         run: cargo clippy --all-targets --all-features -- -D warnings
 
+  package:
+    # The crate as crates.io will hold it: `cargo package` builds the .crate with custodian_kit (and every other
+    # dependency) from crates.io, never the sibling checkout ([patch.crates-io] is not in the .crate). In a release made
+    # with custodian_kit's, the version named is on crates.io only once the kit's CI publishes it: until then this says
+    # so and passes, and the publish job builds the same .crate once the kit is there (it waits for it).
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v6
+      - name: Clone the sibling crates this one builds against (../<name>)
+        run: |
+          branch="${GITHUB_HEAD_REF:-$GITHUB_REF_NAME}"
+          for e in $SIBLINGS; do
+            case "$e" in */*) repo="$e"; s="${e#*/}" ;; *) repo="$ORG/$e"; s="$e" ;; esac
+            git clone --depth 1 --branch "$branch" "https://github.com/$repo.git" "../$s" 2>/dev/null \
+              || git clone --depth 1 "https://github.com/$repo.git" "../$s"
+            echo "$s: $(git -C "../$s" rev-parse --abbrev-ref HEAD) $(git -C "../$s" rev-parse --short HEAD)"
+          done
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Package and build the .crate against crates.io
+        run: |
+          # Cargo.lock may move only because a sibling cloned beside this one is at another version (as in publish)
+          log="$RUNNER_TEMP/package.log"
+          if cargo package --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
+          cat "$log"
+          grep -qE 'no matching package named|candidate versions found which didn.t match' "$log" || exit 1
+          echo "a dependency at the version named is not on crates.io yet: the publish job builds the .crate once it is"
+
   publish:
     needs: [test, clippy]
     if: github.event_name == 'push' && github.ref == 'refs/heads/main'
@@ -124,7 +153,9 @@ jobs:
             git status --short; echo "uncommitted changes besides Cargo.lock"; exit 1
           fi
           # Crates released together publish in dependency order: if a crate
-          # this one needs is not on crates.io yet, wait for it and retry.
+          # this one needs is not on crates.io yet, wait for it and retry
+          # (`cargo publish` builds the .crate against crates.io before it
+          # uploads: the check the package job could not make until then).
           for attempt in $(seq 1 30); do
             log="$RUNNER_TEMP/publish.log"
             if cargo publish --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
