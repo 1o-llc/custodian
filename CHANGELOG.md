@@ -74,7 +74,7 @@ stale resumes refused),
 [`a_plan_is_shown_and_refused_without_touching_anything`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L638) (the 240-trial matrix, `--plan`),
 [`fifty_ordered_replays_take_one_governed_state_from_state01_to_state51`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L662), the line, the MCP tool and the
 resident; unit tests for the state's exclusions and modes, undeclared changes and storage. `cargo test --all-features`
-with code-passenger 0.6.0 (430eae7) as the writer: 135 passed, 0 failed, 1 ignored (stable, the writer required, and
+with code-passenger 0.6.0 (430eae7) as the writer: 137 passed, 0 failed, 1 ignored (stable, the writer required, and
 Rust 1.90); `clippy --all-targets --all-features -D warnings` clean. `cargo package`: until experiments 0.4.0 is on
 crates.io the .crate does not resolve (the package job says so); with experiments patched to its checkout the .crate
 builds.
@@ -118,6 +118,25 @@ What a review found, and its fixes (links pinned to 039197f; experiments' side a
   writes the variable only when it moves ([budget.rs L40](https://github.com/1o-llc/custodian/blob/039197f/src/budget.rs#L40)): no environment write while isolated nodes run.
 - `experiment run`'s refusal of an unauthorized preflight is asserted as CUST0034 ([experiments.rs L311](https://github.com/1o-llc/custodian/blob/039197f/tests/experiments.rs#L311)).
 - `experiment campaign` in the README's lines ([README.md L191](https://github.com/1o-llc/custodian/blob/039197f/README.md#L191)).
+
+What a second review found, and its fixes (links pinned to ef8c1a1):
+
+- **A mark naming an older receipt** let a resume put back another node's accepted transform. A resume now puts back
+  only the interrupted node's own transforms: after its mark, and of a change spec its bound experiment names
+  ([campaigning.rs L388](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L388), [campaigning.rs L398](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L398)), one at a time, newest first, reading the state after each and stopping at the node's start
+  ([campaigning.rs L327](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L327), [campaigning.rs L362](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L362)). A journal that cannot be read refuses the node before it runs anything, instead of marking
+  it from 0 ([campaigning.rs L834](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L834), [campaigning.rs L932](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L932)). [`a_stale_mark_never_puts_back_another_nodes_transform`](https://github.com/1o-llc/custodian/blob/ef8c1a1/tests/campaign.rs#L912).
+- **A dirty tree adopted by a run kept in another storage.** The line journals each state it leaves the project in
+  (`campaign-state`: `start`, `accepted`, `left`, with the digest and the storage; [campaigning.rs L41](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L41), [campaigning.rs L291](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L291), [campaigning.rs L707](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L707)); a
+  first run or `--again`, in any storage, is refused while the campaign last left the project in a state it could
+  not put back, unless the project is at a state the line recorded ([campaigning.rs L301](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L301), [campaigning.rs L519](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L519)).
+  [`exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_again_refuses_a_dirty_tree`](https://github.com/1o-llc/custodian/blob/ef8c1a1/tests/campaign.rs#L736).
+- **Strict** refuses an `exclude` that leaves out any file of the starting tree ([campaigning.rs L478](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L478)).
+  [`links_out_of_the_tree_and_strict_excludes_of_source_are_refused`](https://github.com/1o-llc/custodian/blob/ef8c1a1/tests/campaign.rs#L842).
+- **A write no receipt names** (the process ended while code-passenger wrote): the refusal names each transform
+  record on disk newer than the node's mark that no receipt names, and says how to put its files back
+  ([campaigning.rs L406](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L406), [campaigning.rs L379](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L379)). [`a_write_no_receipt_names_is_refused_with_the_record_to_put_back`](https://github.com/1o-llc/custodian/blob/ef8c1a1/tests/campaign.rs#L938).
+- **A file the node made** with an execute bit no replay declares is undeclared ([campaigning.rs L886](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L886)).
 
 ## 0.6.0 (2026-11-03)
 
