@@ -74,7 +74,7 @@ stale resumes refused),
 [`a_plan_is_shown_and_refused_without_touching_anything`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L638) (the 240-trial matrix, `--plan`),
 [`fifty_ordered_replays_take_one_governed_state_from_state01_to_state51`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L662), the line, the MCP tool and the
 resident; unit tests for the state's exclusions and modes, undeclared changes and storage. `cargo test --all-features`
-with code-passenger 0.6.0 (430eae7) as the writer: 137 passed, 0 failed, 1 ignored (stable, the writer required, and
+with code-passenger 0.6.0 (430eae7) as the writer: 138 passed, 0 failed, 1 ignored (stable, the writer required, and
 Rust 1.90); `clippy --all-targets --all-features -D warnings` clean. `cargo package`: until experiments 0.4.0 is on
 crates.io the .crate does not resolve (the package job says so); with experiments patched to its checkout the .crate
 builds.
@@ -137,6 +137,21 @@ What a second review found, and its fixes (links pinned to ef8c1a1):
   record on disk newer than the node's mark that no receipt names, and says how to put its files back
   ([campaigning.rs L406](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L406), [campaigning.rs L379](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L379)). [`a_write_no_receipt_names_is_refused_with_the_record_to_put_back`](https://github.com/1o-llc/custodian/blob/ef8c1a1/tests/campaign.rs#L938).
 - **A file the node made** with an execute bit no replay declares is undeclared ([campaigning.rs L886](https://github.com/1o-llc/custodian/blob/ef8c1a1/src/campaigning.rs#L886)).
+
+What a third review found, and its fixes (links pinned to 3446a15):
+
+- **A record matched by a change's name.** Two change-spec files may share a name: a resume now takes a transform
+  record as the interrupted node's only when it ran one of the node's own change-spec files (and, when the record
+  carries its digest, that file as it is) ([campaigning.rs L361](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L361), [campaigning.rs L405](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L405)).
+- **A tree one campaign left dirty, another started from.** Any campaign's unresolved `left` state (its latest
+  `campaign-state`) blocks a first run or `--again` of every campaign until the project is at a state a campaign line
+  recorded there ([campaigning.rs L306](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L306)).
+- **A refused recovery** journals the project as `left` (its digest, the storage, and why: [campaigning.rs L291](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L291), [campaigning.rs L383](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L383)), so
+  `--again` in another storage refuses it too; its message ends with what to do: put the workspace back by hand, then
+  run the line again ([campaigning.rs L386](https://github.com/1o-llc/custodian/blob/3446a15/src/campaigning.rs#L386)).
+
+[`a_record_is_matched_by_its_change_file_never_by_name_and_a_refused_recovery_is_journaled_as_left`](https://github.com/1o-llc/custodian/blob/3446a15/tests/campaign.rs#L971); another
+campaign over a dirty tree in [`exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_again_refuses_a_dirty_tree`](https://github.com/1o-llc/custodian/blob/3446a15/tests/campaign.rs#L762).
 
 ## 0.6.0 (2026-11-03)
 
