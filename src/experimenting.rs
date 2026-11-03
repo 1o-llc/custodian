@@ -95,13 +95,21 @@ pub fn status_of(promotion: PromotionDecision) -> i32 {
 
 /// Where a hosted run keeps its storage when the line names none: the job's data folder, else the project's.
 fn storage_of(ctx: &Ctx, job: Option<&str>) -> Result<PathBuf> {
+    Ok(match data_folder(ctx, job)? {
+        Some(d) => d.join("experiments"),
+        None => std::env::current_dir().unwrap_or_default().join(".experiment-storage"),
+    })
+}
+
+/// The data folder a hosted line keeps what it makes in: the job's, else the project's (where its receipts are
+/// kept); none in free mode.
+pub fn data_folder(ctx: &Ctx, job: Option<&str>) -> Result<Option<PathBuf>> {
     if let Some(folder) = job.map(|j| crate::readings::job_folder(ctx, j)).transpose()?.flatten() {
-        return Ok(folder.join(custodian_kit::jobs::JOB_DATA).join("experiments"));
+        return Ok(Some(folder.join(custodian_kit::jobs::JOB_DATA)));
     }
     match ctx.mode.project() {
-        // the project's data folder: where its receipts are kept
-        Some(p) => Ok(p.layout.dir::<crate::layout::ReceiptFile>(&[("seq", "0")])?.parent().map(|d| d.join("experiments")).unwrap_or_default()),
-        None => Ok(std::env::current_dir().unwrap_or_default().join(".experiment-storage")),
+        Some(p) => Ok(p.layout.dir::<crate::layout::ReceiptFile>(&[("seq", "0")])?.parent().map(Path::to_path_buf)),
+        None => Ok(None),
     }
 }
 
@@ -125,7 +133,11 @@ impl Hosted<'_> {
 impl ExperimentHost for Hosted<'_> {
     fn run_command(&mut self, phase: &str, command: &CommandSpec, cwd: &Path) -> std::result::Result<CommandRecord, ExperimentError> {
         let spec = xccute_runtime::CommandSpec::new(command.program.clone()).args(command.args.clone());
-        let ext = External::argv(&format!("experiment.{phase}"), &spec).in_dir(cwd);
+        let mut ext = External::argv(&format!("experiment.{phase}"), &spec).in_dir(cwd);
+        // the command's own environment, as declared (a campaign's binding arrives here): each variable as is
+        for v in &command.env {
+            ext = ext.env(&v.name, &v.value);
+        }
         let display = ext.preview.display().to_string();
         let names = ExternalNames { name: format!("{phase} {}", command.label), job: self.job.clone(), outputs: Vec::new() };
         let run = facade::run_external(self.ctx, ext, names, |_| {}).map_err(|r| ExperimentError::Contract { label: command.label.clone(), detail: self.refused(r) })?;
@@ -136,6 +148,7 @@ impl ExperimentHost for Hosted<'_> {
             program: command.program.clone(),
             args: command.args.clone(),
             cwd: cwd.to_path_buf(),
+            env: command.env.clone(),
             display,
             status: run.code.unwrap_or(-1),
             stdout: run.stdout,
@@ -156,7 +169,8 @@ impl ExperimentHost for Hosted<'_> {
         let pre = facade::execute(self.ctx, &Line::Preflight(surface::Preflight { spec: spec.clone(), batch: false, job: job.clone() }), crate::cli::handle);
         self.said.push(format!("change {}: preflight receipt #{} → {} ({})", change.label, pre.receipt.seq, pre.code, pre.receipt.reason));
         if pre.code != 0 {
-            let r = pre.refusal.clone().unwrap_or_else(|| Code::ExperimentRefused.refuse(format!("change {}: preflight #{} did not authorize {}: {}", change.label, pre.receipt.seq, change.spec.display(), pre.said.join(" · "))));
+            // not authorized: custodian refused the change (the kit's own word for it), not a run that failed
+            let r = pre.refusal.clone().unwrap_or_else(|| custodian_kit::reading::refusal::ReadingRefusal::NotAuthorized.refusal(format!("change {}: preflight #{} did not authorize {}: {}", change.label, pre.receipt.seq, change.spec.display(), pre.said.join(" · "))));
             return Err(self.refused(r));
         }
         let tr = facade::execute(self.ctx, &Line::Transform(surface::Transform { spec: Some(spec), write: true, job, ..surface::Transform::default() }), crate::cli::handle);

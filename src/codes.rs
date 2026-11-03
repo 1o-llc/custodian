@@ -70,6 +70,8 @@ liaise_proc_macro::liaise_codes! {
         NoPlan = 2002 => "no plan of that name",
         LinkageArgs = 2003 => "a linkage record names its kind, its reason and two declarations or more",
         ExperimentRefused = 2101 => "the experiment did not run to its conclusion",
+        CampaignRefused = 2102 => "the campaign cannot be planned or run as declared",
+        CampaignStateMoved = 2103 => "a governed workspace is not at the accepted state the campaign recorded",
     }
 }
 

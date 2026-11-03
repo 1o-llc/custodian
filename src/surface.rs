@@ -215,10 +215,11 @@ pub struct Job;
 #[composite(command = "verify", ty = ArchiveVerify, init = "file")]
 pub struct Archive;
 
-/// `custodian experiment run`.
+/// `custodian experiment run|campaign`.
 #[derive(CompositeSubCommand, Debug, Clone, Copy, Default)]
 #[subcommand(segment = "experiment")]
 #[composite(command = "run", ty = ExperimentRun, init = "spec")]
+#[composite(command = "campaign", ty = ExperimentCampaign, init = "campaign")]
 pub struct Experiment;
 
 /// `custodian receipts merge`.
@@ -1698,6 +1699,13 @@ word_sets! {
     delta_word => custodian_kit::delta::Kind::ALL.iter().map(|k| k.as_str()).collect::<Vec<&'static str>>();
 }
 
+fn campaign_valid(line: &ExperimentCampaign) -> CommandValidationResult {
+    if line.plan && line.again {
+        return refuse("again", "--plan changes nothing; --again runs the campaign fresh: one or the other".into());
+    }
+    Ok(())
+}
+
 fn transform_valid(line: &Transform) -> CommandValidationResult {
     match (&line.spec, &line.revert, &line.batch) {
         (Some(_), Some(_), _) | (Some(_), _, Some(_)) | (_, Some(_), Some(_)) => refuse("revert", "one of a spec, --batch LIST and --revert RECORD".into()),
@@ -1889,6 +1897,44 @@ leaf! {
     }
 }
 
+leaf! {
+    /// Runs an `experiments` campaign governed by custodian: its plan made and checked before anything runs, each
+    /// node an `experiment run` hosted here (shared nodes in this project, one after another; isolated nodes each in
+    /// a governed copy of its state parent's accepted state, at most max_parallel at once), each rejected candidate put
+    /// back through `transform --revert`, the campaign's result kept and named as this run's output. `--plan` shows
+    /// the plan and changes nothing; the same line again resumes an interrupted run; `--again` runs it fresh. Done when
+    /// every candidate is accepted, findings when some are not, refused when a node was refused or failed.
+    #[allow(clippy::duplicated_attributes)]
+    #[derive(SimpleSubCommand, Debug, Clone, Default)]
+    #[subcommand(segment = "campaign")]
+    #[exit_status(code = 0, word = "done")]
+    #[exit_status(code = 1, word = "findings")]
+    #[exit_status(code = 2, word = "refused")]
+    #[validate(with = "campaign_valid")]
+    pub struct ExperimentCampaign {
+        /// The campaign: `v1.<name>.1o.campaign`, or JSON, TOML, YAML or YML (`experiments`' own formats).
+        #[builder(init_required, into)]
+        #[arg(positional, each = plain)]
+        pub campaign: OsString,
+        /// Where the campaign is kept (its plan, progress, workspaces, results): the job's `data/campaigns` by
+        /// default, else the project's.
+        #[builder(into)]
+        #[arg(positional, each = plain)]
+        pub storage: Option<OsString>,
+        /// The job the shared nodes run in (the running job by default).
+        #[builder(into)]
+        #[arg(kv = "--job", each = plain)]
+        pub job: Option<OsString>,
+        /// Show the plan (every node, its dependencies, state parent, workspace, assignment, controls, blocks,
+        /// replicate, design) and change nothing.
+        #[arg(flag = "--plan")]
+        pub plan: bool,
+        /// Run it fresh, from the project's state now, instead of resuming the run kept.
+        #[arg(flag = "--again")]
+        pub again: bool,
+    }
+}
+
 lines! {
     Init(Init) = ["init"] in root => read_init;
     AgentInit(AgentInit) = ["agent", "init"] in Agent => read_agent_init;
@@ -1921,6 +1967,7 @@ lines! {
     ArchiveCheck(ArchiveCheck) = ["archive", "check"] in Archive => read_archive_check;
     ArchiveVerify(ArchiveVerify) = ["archive", "verify"] in Archive => read_archive_verify;
     ExperimentRun(ExperimentRun) = ["experiment", "run"] in Experiment => read_experiment_run;
+    ExperimentCampaign(ExperimentCampaign) = ["experiment", "campaign"] in Experiment => read_experiment_campaign;
     Sweep(Sweep) = ["sweep"] in root => read_sweep;
     CountOf(CountOf) = ["count", "of"] in Count => read_count_of;
     CountReport(CountReport) = ["count", "report"] in Count => read_count_report;
@@ -2154,6 +2201,10 @@ fn read_experiment_run(w: &mut Words) -> Result<ExperimentRun> {
     Ok(ExperimentRun { job: kv(w, "--job")?, spec: need(w, "experiment spec (experiment run SPEC [STORAGE])", "experiment run")?, storage: pos(w) })
 }
 
+fn read_experiment_campaign(w: &mut Words) -> Result<ExperimentCampaign> {
+    Ok(ExperimentCampaign { job: kv(w, "--job")?, plan: w.flag("--plan"), again: w.flag("--again"), campaign: need(w, "campaign (experiment campaign CAMPAIGN [STORAGE])", "experiment campaign")?, storage: pos(w) })
+}
+
 fn read_archive_verify(w: &mut Words) -> Result<ArchiveVerify> {
     Ok(ArchiveVerify { job: kv(w, "--job")?, file: need(w, "archive (archive verify FILE.zip)", "archive verify")? })
 }
@@ -2320,6 +2371,8 @@ mod tests {
             Custodian::delta("fmt").base("../baseline").job("j-1").argv(),
             Custodian::experiment().run("round49.json").storage("runs").job("j-1").argv(),
             Custodian::experiment().run("round49.json").argv(),
+            Custodian::experiment().campaign("v1.history.1o.campaign").storage("runs").job("j-1").plan().argv(),
+            Custodian::experiment().campaign("v1.history.1o.campaign").again().argv(),
             Custodian::job().brief().name("batch").bundle().argv(),
             Custodian::job().import("x.bundle").argv(),
             Custodian::job().list().argv(),

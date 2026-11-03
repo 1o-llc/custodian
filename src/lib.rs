@@ -26,6 +26,7 @@ pub mod deltas;
 pub mod diag;
 pub mod digest;
 pub mod exercise;
+pub mod campaigning;
 pub mod experimenting;
 pub mod facade;
 pub mod history;

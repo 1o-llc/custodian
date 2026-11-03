@@ -60,7 +60,7 @@ fn project(tag: &str, locked: bool) -> PathBuf {
 }
 
 fn command(label: &str, program: &str, args: &[&str]) -> CommandSpec {
-    CommandSpec { label: label.into(), program: program.into(), args: args.iter().map(|a| (*a).to_owned()).collect(), cwd: None }
+    CommandSpec { label: label.into(), program: program.into(), args: args.iter().map(|a| (*a).to_owned()).collect(), cwd: None, env: Vec::new() }
 }
 
 /// The experiment spec, shaped by `f`, written outside the project (with the change spec beside it): its path.

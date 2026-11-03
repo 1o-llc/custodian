@@ -82,6 +82,7 @@ pub const TOOLS: &[ToolLine] = &[
     tool("archive_verify", "archive verify", &[], ""),
     tool("delta", "delta", &[], "Before judging a candidate by a format or lint check: only the findings it adds to its base count."),
     tool("experiment_run", "experiment run", &[], "An experiment run under custodian: its commands with receipts, its bounded changes through preflight and transform; the result's path is the output, done only when it promotes."),
+    tool("experiment_campaign", "experiment campaign", &[], "A campaign of experiments under custodian: `plan` shows every node and changes nothing; the same call again resumes a run; the result's path is the output."),
     tool("count", "count of", &[], ""),
     tool("count_report", "count report", &[], "`a` then `b`: a receipt number, a job id, a commit or a date."),
     tool("count_history", "count history", &[], ""),

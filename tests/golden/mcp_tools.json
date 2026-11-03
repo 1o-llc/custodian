@@ -631,6 +631,39 @@
     }
   },
   {
+    "name": "experiment_campaign",
+    "description": "Runs `custodian experiment campaign`, a declared line; every run leaves a receipt. A campaign of experiments under custodian: `plan` shows every node and changes nothing; the same call again resumes a run; the result's path is the output.\n\nRuns an `experiments` campaign governed by custodian: its plan made and checked before anything runs, each node an `experiment run` hosted here (shared nodes in this project, one after another; isolated nodes each in a governed copy of its state parent's accepted state, at most max_parallel at once), each rejected candidate put back through `transform --revert`, the campaign's result kept and named as this run's output. `--plan` shows the plan and changes nothing; the same line again resumes an interrupted run; `--again` runs it fresh. Done when every candidate is accepted, findings when some are not, refused when a node was refused or failed.",
+    "inputSchema": {
+      "additionalProperties": false,
+      "properties": {
+        "again": {
+          "description": "Run it fresh, from the project's state now, instead of resuming the run kept. (`--again`)",
+          "type": "boolean"
+        },
+        "campaign": {
+          "description": "The campaign: `v1.<name>.1o.campaign`, or JSON, TOML, YAML or YML (`experiments`' own formats). (a word on the line)",
+          "type": "string"
+        },
+        "job": {
+          "description": "The job the shared nodes run in (the running job by default). (`--job`)",
+          "type": "string"
+        },
+        "plan": {
+          "description": "Show the plan (every node, its dependencies, state parent, workspace, assignment, controls, blocks, replicate, design) and change nothing. (`--plan`)",
+          "type": "boolean"
+        },
+        "storage": {
+          "description": "Where the campaign is kept (its plan, progress, workspaces, results): the job's `data/campaigns` by default, else the project's. (a word on the line)",
+          "type": "string"
+        }
+      },
+      "required": [
+        "campaign"
+      ],
+      "type": "object"
+    }
+  },
+  {
     "name": "count",
     "description": "Runs `custodian count of`, a declared line; every run leaves a receipt.\n\nFiles, lines, code, comments and blanks of a route (custodian_kit's `count` reading kind, on tokei), per crate or language, and the tests' share.",
     "inputSchema": {

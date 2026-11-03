@@ -212,7 +212,12 @@ pub fn passenger<'a>(root: &std::path::Path, words: impl IntoIterator<Item = &'a
 
 /// Whether `code-passenger` is on PATH.
 pub fn passenger_installed() -> bool {
-    std::env::var_os("PATH").is_some_and(|p| std::env::split_paths(&p).any(|d| d.join("code-passenger").is_file()))
+    passenger_path().is_some()
+}
+
+/// The `code-passenger` this process runs: the first on PATH.
+pub fn passenger_path() -> Option<std::path::PathBuf> {
+    std::env::var_os("PATH").and_then(|p| std::env::split_paths(&p).map(|d| d.join("code-passenger")).find(|f| f.is_file()))
 }
 
 /// A code-passenger line run through the executor with custodian's receipt; code-passenger is told a runner keeps

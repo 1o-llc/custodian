@@ -18,8 +18,13 @@ env:
   CARGO_TERM_COLOR: always
   # crates this one depends on by path; CI clones them next to it (every other crate is from crates.io)
   # (code_passenger is no dependency: it is the writer the bounded-mode tests run, built from its sibling checkout;
-  # an entry with an owner, owner/name, is cloned from that owner instead of ORG)
-  SIBLINGS: custodian_kit jameshuntt/code_passenger
+  # experiments is the runner `experiment run` and `experiment campaign` host, its branch of this push's name when it
+  # has one, so a change across the two is tested together; an entry with an owner, owner/name, is cloned from that
+  # owner instead of ORG)
+  SIBLINGS: custodian_kit jameshuntt/code_passenger jameshuntt/experiments
+  # a dependency by path whose version may not be on crates.io yet while its own CI publishes it: package and publish
+  # wait for it (and say so) rather than fail
+  PATH_DEPS: "custodian_kit|experiments"
   ORG: 1o-llc
 
 jobs:
@@ -78,10 +83,11 @@ jobs:
         run: cargo clippy --all-targets --all-features -- -D warnings
 
   package:
-    # The crate as crates.io will hold it: `cargo package` builds the .crate with custodian_kit (and every other
-    # dependency) from crates.io, never the sibling checkout ([patch.crates-io] is not in the .crate). In a release made
-    # with custodian_kit's, the version named is on crates.io only once the kit's CI publishes it: until then this says
-    # so and passes, and the publish job builds the same .crate once the kit is there (it waits for it).
+    # The crate as crates.io will hold it: `cargo package` builds the .crate with custodian_kit and experiments (and
+    # every other dependency) from crates.io, never the sibling checkouts ([patch.crates-io] and the path are not in the
+    # .crate). In a release made with custodian_kit's or experiments', the version named is on crates.io only once that
+    # crate's CI publishes it: until then this says so and passes, and the publish job builds the same .crate once it is
+    # there (it waits for it).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v6
@@ -101,8 +107,8 @@ jobs:
           log="$RUNNER_TEMP/package.log"
           if cargo package --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
           cat "$log"
-          grep -qE 'no matching package named .custodian_kit.|failed to select a version for the requirement .custodian_kit = ' "$log" || exit 1
-          echo "custodian_kit at the version named is not on crates.io yet: the publish job builds the .crate once it is"
+          grep -qE "no matching package named .($PATH_DEPS).|failed to select a version for the requirement .($PATH_DEPS) = " "$log" || exit 1
+          echo "a path dependency at the version named is not on crates.io yet: the publish job builds the .crate once it is"
 
   publish:
     needs: [test, clippy]
@@ -163,7 +169,7 @@ jobs:
             log="$RUNNER_TEMP/publish.log"
             if cargo publish --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
             cat "$log"
-            grep -qE 'no matching package named .custodian_kit.|failed to select a version for the requirement .custodian_kit = ' "$log" || exit 1
+            grep -qE "no matching package named .($PATH_DEPS).|failed to select a version for the requirement .($PATH_DEPS) = " "$log" || exit 1
             echo "a dependency is not on crates.io yet; waiting 30s (attempt $attempt of 30)"
             sleep 30
           done

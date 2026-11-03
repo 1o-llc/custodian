@@ -612,7 +612,7 @@ dependencies = [
 
 [[package]]
 name = "custodian"
-version = "0.6.0"
+version = "0.7.0"
 dependencies = [
  "abut",
  "big-bad-bool",
@@ -1026,9 +1026,7 @@ dependencies = [
 
 [[package]]
 name = "experiments"
-version = "0.3.2"
-source = "registry+https://github.com/rust-lang/crates.io-index"
-checksum = "1810e15d0ccbea8e4d809ae8976e80dee9aad28ec488bc378aaf1f82100e2176"
+version = "0.4.0"
 dependencies = [
  "core-1o",
  "differences",
@@ -1038,6 +1036,7 @@ dependencies = [
  "serde_json",
  "serde_yaml",
  "simple_impl_derive",
+ "stable_digest",
  "toml 0.8.23",
  "xccute_contract",
  "xccute_runtime",
