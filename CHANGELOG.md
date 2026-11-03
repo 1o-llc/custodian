@@ -74,10 +74,50 @@ stale resumes refused),
 [`a_plan_is_shown_and_refused_without_touching_anything`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L638) (the 240-trial matrix, `--plan`),
 [`fifty_ordered_replays_take_one_governed_state_from_state01_to_state51`](https://github.com/1o-llc/custodian/blob/4a9caf1/tests/campaign.rs#L662), the line, the MCP tool and the
 resident; unit tests for the state's exclusions and modes, undeclared changes and storage. `cargo test --all-features`
-with code-passenger 0.6.0 (430eae7) as the writer: 129 passed, 0 failed, 1 ignored (stable, the writer required, and
+with code-passenger 0.6.0 (430eae7) as the writer: 135 passed, 0 failed, 1 ignored (stable, the writer required, and
 Rust 1.90); `clippy --all-targets --all-features -D warnings` clean. `cargo package`: until experiments 0.4.0 is on
 crates.io the .crate does not resolve (the package job says so); with experiments patched to its checkout the .crate
 builds.
+
+What a review found, and its fixes (links pinned to 039197f; experiments' side at its fb3c1cd):
+
+- **A candidate that cannot be read** (a command leaves a file no one can read) lost its result and skipped the
+  put-back. The experiment's promotion, outcome and result are now the node's before the candidate is read
+  ([campaigning.rs L788](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L788)); a read that fails refuses the node, every transform is still put back newest first ([campaigning.rs L715](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L715),
+  [campaigning.rs L859](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L859)), and the workspace is discarded unless a read after it is the start ([campaigning.rs L878](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L878)).
+  [`a_candidate_that_cannot_be_read_is_still_put_back_and_its_result_kept`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L707).
+- **A write Code Passenger did not make, accepted into the shared lineage** (exploratory): never now (experiments'
+  decision); the shared workspace keeps the stray file, so it is discarded and the campaign stops. `--again` runs only
+  from a state the last run recorded in the project (its start, a node's start or accepted state), else it is refused
+  with what that run could not put back ([campaigning.rs L270](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L270), [campaigning.rs L420](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L420)).
+  [`exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_again_refuses_a_dirty_tree`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L736).
+- **A process that ended between a transform and the node's recorded end** left the run unresumable. Before its
+  experiment line, each node keeps its mark beside its run (`nodes/<id>/running.json`: the workspace, the state it
+  started from, the last receipt before it; [campaigning.rs L705](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L705), [campaigning.rs L822](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L822)). The same line again, for each node the progress
+  says was running ([campaigning.rs L396](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L396), [campaigning.rs L296](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L296)): no mark, it never ran anything; its own new isolated workspace, it runs again
+  in a new one; else its workspace is undone through the transform records its receipts name (one already put back is
+  not put back again), newest first by `transform --revert`, read again, and must be the state it started from (else
+  refused, CUST2103, with what was found). Then it runs again; its interrupted attempt is kept. The rule is the same
+  whatever the node was decided: a node whose end is not recorded is undone and run again. A process that ends while
+  code-passenger itself writes (before custodian keeps the transform's receipt) leaves a write no receipt names: that
+  resume is refused, with the digests.
+  [`a_run_killed_after_a_transform_resumes_by_putting_it_back`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L763),
+  [`a_continue_workspace_killed_after_a_transform_resumes_by_putting_it_back`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L783),
+  [`a_node_accepted_but_not_recorded_is_undone_and_runs_again`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L805), and the kill before any transform
+  ([`an_interrupted_campaign_resumes_without_running_a_completed_node_again`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L574)).
+- **Links** out of the tree (absolute, or climbing out) are refused before a copy is made ([campaigning.rs L211](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L211)); a link inside the
+  tree is copied as it is. [`links_out_of_the_tree_and_strict_excludes_of_source_are_refused`](https://github.com/1o-llc/custodian/blob/039197f/tests/campaign.rs#L836).
+- **A declared file's mode** that moved when no replay declares that mode is undeclared ([campaigning.rs L777](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L777)).
+- **A discarded workspace** reports the state it was left in (`left`), never its start as accepted ([campaigning.rs L878](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L878)).
+- **Strict** refuses an `exclude` that leaves out Rust source or a manifest ([campaigning.rs L259](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L259), [campaigning.rs L382](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L382)) and a resume with
+  other tools than the run began with ([campaigning.rs L405](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L405)).
+- **Tools**: code-passenger's own `--version` line, and experiments' version and digest (linked into custodian, so
+  custodian's binary digest) ([campaigning.rs L516](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L516), [campaigning.rs L527](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L527)).
+- **A stop** says which nodes were running then ([campaigning.rs L491](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L491)).
+- **The battery floor** a job's budget gives is set once, before any node runs ([campaigning.rs L68](https://github.com/1o-llc/custodian/blob/039197f/src/campaigning.rs#L68)), and `budget::before_step`
+  writes the variable only when it moves ([budget.rs L40](https://github.com/1o-llc/custodian/blob/039197f/src/budget.rs#L40)): no environment write while isolated nodes run.
+- `experiment run`'s refusal of an unauthorized preflight is asserted as CUST0034 ([experiments.rs L311](https://github.com/1o-llc/custodian/blob/039197f/tests/experiments.rs#L311)).
+- `experiment campaign` in the README's lines ([README.md L191](https://github.com/1o-llc/custodian/blob/039197f/README.md#L191)).
 
 ## 0.6.0 (2026-11-03)
 
