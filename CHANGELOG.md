@@ -7,7 +7,8 @@ hosted experiment's bounded change can be one. Nothing in custodian's hosted pat
 runs the nested `preflight` and `transform --write` lines through `facade::execute` under the writer the
 `experiment run` line holds, and code_passenger 0.6.0 is the one writer. Minor, not patch: the kit's types in this
 crate's API (`codes::Refusal`, `changes::write_spec`, `maint::passenger`, ...) are 0.5.0's, and 0.5.1 stays on
-0.4.1. Nothing is removed. Links are pinned to 2d430ff (b1fd1f5 for CI; 44dda97 for lines unchanged).
+0.4.1. Nothing is removed. Links are pinned to 2d430ff (b1fd1f5 for CI; 44dda97 for lines unchanged), and for what a
+review found, 0d826bf (6ca00b0 for CI).
 
 - **The word.** The operation words a line takes (`plan approve --operation`, `exercise --ops`) are the kit's
   vocabulary ([surface.rs L1692](https://github.com/1o-llc/custodian/blob/44dda97/src/surface.rs#L1692), [L1648](https://github.com/1o-llc/custodian/blob/44dda97/src/surface.rs#L1648)), so `replay` is one with no
@@ -23,12 +24,19 @@ crate's API (`codes::Refusal`, `changes::write_spec`, `maint::passenger`, ...) a
   experiment's evidence; the job's close counts it and leaves no line uncovered.
   [`a_replay_that_does_not_hold_is_refused_by_the_preflight_and_writes_nothing`](https://github.com/1o-llc/custodian/blob/2d430ff/tests/experiments.rs#L301):
   its last file not as declared before, the preflight refuses it, no transform runs, nothing is written.
-- **CI** ([`package`](https://github.com/1o-llc/custodian/blob/b1fd1f5/.github/workflows/ci.yml#L77)): the crate as crates.io will hold it, built on every push
-  against crates.io's custodian_kit (`[patch.crates-io]` is not in the .crate); while the kit version it names is not
-  published yet it says so and passes, and `cargo publish` builds the same .crate once the kit is there.
+- **The hosted replay is not skipped where the writer was built.** [`passenger_required`](https://github.com/1o-llc/custodian/blob/0d826bf/tests/common/mod.rs#L128)
+  ([used at L236](https://github.com/1o-llc/custodian/blob/0d826bf/tests/experiments.rs#L236)): with `CUSTODIAN_TEST_PASSENGER_REQUIRED=1`, which CI's stable leg
+  sets ([ci.yml L58](https://github.com/1o-llc/custodian/blob/6ca00b0/.github/workflows/ci.yml#L58)) because it builds code-passenger, a missing writer fails the test
+  instead of skipping it; the Rust 1.90 leg, which does not build it, still skips and says so.
+- **The `[patch.crates-io]` comment** says what the patch does ([Cargo.toml L84](https://github.com/1o-llc/custodian/blob/0d826bf/Cargo.toml#L84)): differences_kit 0.1.1
+  asks for custodian_kit ^0.3.1 and builds with its own 0.3.15, so two are built; the comment said there was one.
+- **CI** ([`package`](https://github.com/1o-llc/custodian/blob/6ca00b0/.github/workflows/ci.yml#L80)): the crate as crates.io will hold it, built on every push
+  against crates.io's custodian_kit (`[patch.crates-io]` is not in the .crate); while that version of custodian_kit is
+  not published yet it says so and passes, and `cargo publish` builds the same .crate once the kit is there. Package
+  and publish wait only on custodian_kit's version missing, never on another resolution error.
 
-`cargo test --all-features` (with code-passenger 0.6.0 as the writer): 110 passed, 0 failed, 1 ignored (stable and
-Rust 1.90).
+`cargo test --all-features` (with code-passenger 0.6.0, 4b86237, as the writer): 110 passed, 0 failed, 1 ignored
+(stable, with the writer required, and Rust 1.90).
 
 ## 0.5.1 (2026-11-01)
 
