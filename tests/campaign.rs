@@ -181,7 +181,7 @@ fn the_resident_shows_the_plan_as_the_line_does() {
     assert!(child.wait().unwrap().success());
     let plan = |out: &str| out.lines().find(|l| l.starts_with("campaign resident · plan ")).map(str::to_owned);
     assert_eq!(plan(&r.out), plan(&direct), "the same plan");
-    assert!(r.out.contains("s.t02.b01.r01"), "{}", r.out);
+    assert!(r.out.contains("s.b01.t02.r01"), "{}", r.out);
 }
 
 #[test]
@@ -422,7 +422,7 @@ fn a_repeat_runs_independent_trials_and_summarizes_them() {
         assert_eq!(rep.measurement.value, scientific_method::Scalar::Number(k as f64 + 1.0), "the binding reached the command");
     }
     let s = &r.summaries[0];
-    assert_eq!((s.requested, s.completed, s.start_digests.len()), (3, 3, 1));
+    assert_eq!((s.requested, s.completed, s.start_digest.as_deref()), (3, 3, Some(r.start.as_ref().unwrap().digest.as_str())));
     let m = s.measurements.iter().find(|m| m.name == "replicate").unwrap();
     assert_eq!((m.n, m.mean, m.min, m.max), (3, Some(2.0), Some(1.0), Some(3.0)));
     assert_eq!(digest(&c), r.start.as_ref().unwrap().digest, "the project is untouched by isolated trials");
@@ -477,8 +477,9 @@ fn a_factorial_sweep_runs_its_exact_expansion_with_each_assignment_bound() {
         let m = s.measurements.iter().find(|m| m.name == "size").unwrap();
         assert_eq!((s.requested, s.completed, m.n, m.mean, m.stddev), (2, 2, 2, Some(size), Some(0.0)));
     }
-    let by_size: Vec<(String, usize)> = r.marginals.iter().filter(|m| m.name == "size").map(|m| (m.level.to_string(), m.completed)).collect();
-    assert_eq!(by_size, [("1".to_string(), 8), ("2".to_string(), 8), ("3".to_string(), 8)]);
+    // by each level within each block (never pooled across blocks): 2 matchers × 2 repeats each
+    let by_size: Vec<(String, String, usize)> = r.marginals.iter().filter(|m| m.factor == "size").map(|m| (m.blocks[0].level.to_string(), m.level.to_string(), m.completed)).collect();
+    assert_eq!(by_size, [("m1", "1"), ("m1", "2"), ("m1", "3"), ("m2", "1"), ("m2", "2"), ("m2", "3")].map(|(b, l)| (b.to_string(), l.to_string(), 4)));
     assert!(r.order.iter().all(|e| e.running <= 4), "max_parallel");
 }
 
@@ -644,7 +645,7 @@ fn a_plan_is_shown_and_refused_without_touching_anything() {
     let out = ok(&c, &["experiment", "campaign", matrix.to_str().unwrap(), "--plan"], 0);
     assert!(out.contains("campaign matrix · plan sha256:") && out.contains("240 nodes"), "{out}");
     assert!(out.contains("sweep grid: factorial · 24 treatments × 10 repeats × blocks machine = 240 trials"), "{out}");
-    assert!(out.contains("240 grid.t24.b01.r10") && out.contains("set matcher=simd,size=1000,geo=high") && out.contains("block machine=lab-1") && out.contains("replicate 10"), "{out}");
+    assert!(out.contains("240 grid.b01.t24.r10") && out.contains("set matcher=simd,size=1000,geo=high") && out.contains("block machine=lab-1") && out.contains("replicate 10"), "{out}");
     assert!(out.contains("at most 4 at once"), "{out}");
     assert!(out.contains("plan only: nothing was run or written"), "{out}");
     let refused = doc(&a, "cycle.json", r#"{"id":"cycle","steps":[{"run":{"id":"a","spec":"bench.json","after":["b"],"workspace":"isolated"}},{"run":{"id":"b","spec":"bench.json","after":["a"],"workspace":"isolated"}}]}"#);
@@ -697,4 +698,197 @@ fn fifty_ordered_replays_take_one_governed_state_from_state01_to_state51() {
     assert_eq!(writes(&c).len(), 50);
     assert!(!all.iter().filter_map(|x| x["line"].as_str()).any(|l| l.starts_with("sh ") || l.starts_with("bash ") || l.contains(".command")), "no shell");
     assert_eq!(all.iter().filter(|x| x["line"].as_str().is_some_and(|l| l.starts_with("custodian experiment campaign "))).count(), 1, "one campaign line");
+}
+
+
+/// A command leaves a file no one can read: the candidate cannot be read. The result is kept, the transform is still
+/// put back, the workspace is discarded (it is not its start: the file stays) and the campaign stops.
+#[test]
+fn a_candidate_that_cannot_be_read_is_still_put_back_and_its_result_kept() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("unreadable");
+    let a = fresh("campaign-unreadable-artifacts");
+    experiment(&a, "X", Some(0), Some(&step(&a, 0)), 1, |s| {
+        s.protocol.candidate.push(command("make", "touch", &["locked.txt"]));
+        s.protocol.candidate.push(command("lock", "chmod", &["000", "locked.txt"]));
+    });
+    experiment(&a, "Y", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    let file = doc(&a, "unreadable.json", r#"{"id":"unreadable","steps":[{"sequence":{"steps":[{"run":{"id":"X","spec":"X.json"}},{"run":{"id":"Y","spec":"Y.json"}}]}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", file.to_str().unwrap()], Some(&bin));
+    let _ = std::fs::set_permissions(c.join("locked.txt"), std::fs::Permissions::from_mode(0o644));
+    assert_eq!(r.code, 2, "{}", r.all());
+    let res = result_of(&c, &r.out);
+    let x = node(&res, "X");
+    assert_eq!((x.run.status, x.run.promotion, x.run.state), (NodeStatus::Refused, Some(PromotionDecision::Promote), Some(StateAction::Discarded)));
+    assert!(x.run.reason.as_deref().unwrap().contains("the candidate state could not be read"), "{:?}", x.run.reason);
+    assert!(x.run.result.as_ref().is_some_and(|f| f.path.is_file()), "the result is kept");
+    assert_eq!(x.run.restore.len(), 1, "the transform was put back: {:?}", x.run.restore);
+    assert_eq!((x.run.accepted.as_ref(), x.run.left.as_ref()), (None, None), "no accepted state on disk; the state left could not be read");
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(0), "STATE.txt put back");
+    assert_eq!(node(&res, "Y").run.status, NodeStatus::Skipped);
+    assert!(res.workspaces[0].discarded && res.stopped.is_some());
+}
+
+/// Exploratory never lets a write Code Passenger did not make into a state another node starts from: the candidate is
+/// not accepted, the shared workspace (it keeps the stray file) is discarded, the campaign stops; `--again` refuses the
+/// dirty tree, naming what to put back, and runs once it is put back.
+#[test]
+fn exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_again_refuses_a_dirty_tree() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("dirty");
+    let a = fresh("campaign-dirty-artifacts");
+    experiment(&a, "X", Some(0), Some(&step(&a, 0)), 1, |s| s.protocol.candidate.push(command("stray", "touch", &["stray.txt"])));
+    experiment(&a, "Y", Some(1), Some(&step(&a, 1)), 2, |_| {});
+    let file = doc(&a, "dirty.json", r#"{"id":"dirty","rigor":"exploratory","steps":[{"sequence":{"steps":[{"run":{"id":"X","spec":"X.json"}},{"run":{"id":"Y","spec":"Y.json"}}]}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", file.to_str().unwrap()], Some(&bin));
+    assert_eq!(r.code, 2, "{}", r.all());
+    let res = result_of(&c, &r.out);
+    let x = node(&res, "X");
+    assert_eq!(x.run.state, Some(StateAction::Discarded));
+    assert!(x.run.findings[0].contains("+stray.txt") && x.run.findings[0].contains("never takes a change Code Passenger did not make"), "{:?}", x.run.findings);
+    assert_eq!(node(&res, "Y").run.status, NodeStatus::Skipped, "nothing starts from it");
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(0), "X's transform put back");
+    // the same line refuses the moved project; --again refuses a state the run never recorded, naming the stray file
+    let again = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), "--again"], Some(&bin));
+    assert_eq!(again.code, 2, "{}", again.all());
+    assert!(again.all().contains("[CUST2103]") && again.all().contains("never recorded") && again.all().contains("+stray.txt") && again.all().contains("put the project back"), "{}", again.all());
+    std::fs::remove_file(c.join("stray.txt")).unwrap();
+    let fresh_run = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), "--again"], Some(&bin));
+    assert_ne!(result_of(&c, &fresh_run.out).run_id, res.run_id, "the project put back to a state the run recorded: a fresh run");
+}
+
+/// Killed after B's transform, while its candidate is measured: the same line puts B's transform back through its
+/// record, finds the project at B's start, and runs B again; the interrupted attempt is kept.
+#[test]
+fn a_run_killed_after_a_transform_resumes_by_putting_it_back() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("killed-after-transform");
+    let a = fresh("campaign-killed-artifacts");
+    experiment(&a, "A", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    experiment(&a, "B", Some(1), Some(&step(&a, 1)), 2, |s| s.protocol.candidate.push(command("slow candidate", "sleep", &["6"])));
+    let file = doc(&a, "killed.json", r#"{"id":"killed","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}}]}}]}"#);
+    // B's transform written and its receipts kept (custodian's transform line has ended), its candidate still running
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/killed/progress.json", "B", |c| std::fs::read_to_string(c.join("STATE.txt")).unwrap_or_default() == state(2) && transformed(c) == 2);
+    let out = campaign(&c, &bin, &file, &[], 0);
+    assert!(out.contains("B: interrupted; 1 transforms put back newest first"), "{out}");
+    let r = result_of(&c, &out);
+    assert_eq!((node(&r, "B").run.state, r.counts.completed), (Some(StateAction::Accepted), 2));
+    assert!(r.attempts.iter().any(|x| x.id == "B" && x.reason.as_deref().is_some_and(|w| w.starts_with("interrupted"))), "{:?}", r.attempts);
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(2));
+    assert_eq!(writes(&c).iter().filter(|l| l.contains(" --revert ")).count(), 1);
+}
+
+/// The same in an isolated lineage evolving in place (`continue`).
+#[test]
+fn a_continue_workspace_killed_after_a_transform_resumes_by_putting_it_back() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("killed-continue");
+    let a = fresh("campaign-killed-continue-artifacts");
+    experiment(&a, "A", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    experiment(&a, "B", Some(1), Some(&step(&a, 1)), 2, |s| s.protocol.candidate.push(command("slow candidate", "sleep", &["6"])));
+    let file = doc(&a, "cont.json", r#"{"id":"cont","steps":[{"run":{"id":"A","spec":"A.json","workspace":"isolated"}},{"run":{"id":"B","spec":"B.json","from":"A","workspace":"continue"}}]}"#);
+    let ws = |c: &Path| c.join(".custodian/data/campaigns/cont/runs");
+    let at = |c: &Path| walk_files(&ws(c)).into_iter().find(|p| p.ends_with("workspaces/A/STATE.txt")).and_then(|p| p.parent().map(Path::to_path_buf));
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/cont/progress.json", "B", |c| at(c).is_some_and(|w| std::fs::read_to_string(w.join("STATE.txt")).unwrap_or_default() == state(2) && transformed(&w) == 2));
+    let out = campaign(&c, &bin, &file, &[], 0);
+    assert!(out.contains("B: interrupted; 1 transforms put back newest first"), "{out}");
+    let r = result_of(&c, &out);
+    let b = node(&r, "B");
+    assert_eq!(b.run.state, Some(StateAction::Accepted));
+    assert_eq!(std::fs::read_to_string(b.run.workspace_path.as_ref().unwrap().join("STATE.txt")).unwrap(), state(2));
+}
+
+/// The process ended after B was decided and accepted but before its end was written: the progress still says B
+/// runs. The rule: a node whose end is not recorded is undone (its transforms put back to its recorded start) and
+/// runs again, whatever it was decided.
+#[test]
+fn a_node_accepted_but_not_recorded_is_undone_and_runs_again() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("killed-after-accept");
+    let a = fresh("campaign-killed-accept-artifacts");
+    experiment(&a, "A", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    experiment(&a, "B", Some(1), Some(&step(&a, 1)), 2, |_| {});
+    experiment(&a, "C", Some(2), Some(&step(&a, 2)), 3, |s| s.protocol.prepare.push(command("long enough to stop", "sleep", &["6"])));
+    let file = doc(&a, "accepted.json", r#"{"id":"accepted","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}},{"run":{"id":"C","spec":"C.json"}}]}}]}"#);
+    let pf = c.join(".custodian/data/campaigns/accepted/progress.json");
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/accepted/progress.json", "C", |_| true);
+    // the progress as it stood before B's end was written: B running, the shared workspace at A's accepted state
+    let mut p = experiments::read_campaign_progress(&pf).unwrap();
+    let b = p.nodes.remove("B").unwrap();
+    let a_accepted = p.nodes["A"].accepted.clone();
+    p.running = vec!["B".into()];
+    let shared = p.workspaces.get_mut("shared").unwrap();
+    shared.accepted = a_accepted.clone();
+    shared.last = Some("A".into());
+    experiments::write_campaign_progress(&pf, &p).unwrap();
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(2), "the tree is at B's accepted state");
+    let out = campaign(&c, &bin, &file, &[], 0);
+    assert!(out.contains("B: interrupted; 1 transforms put back newest first"), "{out}");
+    let r = result_of(&c, &out);
+    assert_eq!(node(&r, "B").run.start, a_accepted, "B ran again from A's state");
+    assert_ne!(node(&r, "B").run.run_id, b.run_id);
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(3));
+}
+
+/// A link that leaves the tree is never copied into an isolated workspace; strict refuses an exclude that leaves out
+/// source; both before anything is made.
+#[test]
+fn links_out_of_the_tree_and_strict_excludes_of_source_are_refused() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("links");
+    let a = fresh("campaign-links-artifacts");
+    experiment(&a, "X", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    std::os::unix::fs::symlink(c.join("notes.txt"), c.join("out-link")).unwrap();
+    let file = doc(&a, "links.json", r#"{"id":"links","steps":[{"run":{"id":"X","spec":"X.json","workspace":"isolated"}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", file.to_str().unwrap()], Some(&bin));
+    assert!(r.code == 2 && r.all().contains("out-link is a link to") && r.all().contains("outside the tree"), "{}", r.all());
+    assert!(!c.join(".custodian/data/campaigns/links/runs").exists() || walk_files(&c.join(".custodian/data/campaigns/links/runs")).iter().all(|p| !p.to_string_lossy().contains("/states/")), "no copy made");
+    // a link inside the tree is kept as it is
+    std::fs::remove_file(c.join("out-link")).unwrap();
+    std::os::unix::fs::symlink("notes.txt", c.join("in-link")).unwrap();
+    let file = doc(&a, "links2.json", r#"{"id":"links2","steps":[{"run":{"id":"X","spec":"X.json","workspace":"isolated"}}]}"#);
+    let r = result_of(&c, &campaign(&c, &bin, &file, &[], 0));
+    let ws = node(&r, "X").run.workspace_path.clone().unwrap();
+    assert_eq!(std::fs::read_link(ws.join("in-link")).unwrap(), PathBuf::from("notes.txt"));
+    let strict = doc(&a, "strict.json", r#"{"id":"strict","rigor":"strict","exclude":["src"],"steps":[{"run":{"id":"X","spec":"X.json"}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", strict.to_str().unwrap()], Some(&bin));
+    assert!(r.code == 2 && r.all().contains("strict: exclude `src` leaves out source the code digest reads (src/lib.rs)"), "{}", r.all());
+}
+
+/// `custodian experiment campaign FILE` started, killed once node `id` is running and `when` holds.
+fn kill_when(c: &Path, bin: &Path, file: &Path, progress: &str, id: &str, when: impl Fn(&Path) -> bool) {
+    let progress = c.join(progress);
+    let mut child = std::process::Command::new(BIN).args(["experiment", "campaign", file.to_str().unwrap()]).current_dir(c).env_remove("XDG_RUNTIME_DIR").env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap())).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
+    let mut seen = false;
+    for _ in 0..800 {
+        std::thread::sleep(std::time::Duration::from_millis(50));
+        if experiments::read_campaign_progress(&progress).is_ok_and(|p| p.running.iter().any(|r| r == id)) && when(c) {
+            seen = true;
+            break;
+        }
+    }
+    child.kill().unwrap();
+    let _ = child.wait();
+    assert!(seen, "{id} never ran as expected before the kill");
+}
+
+/// How many of custodian's own `transform` lines a governed folder has receipts of.
+fn transformed(dir: &Path) -> usize {
+    std::fs::read_dir(dir.join(".custodian/data/receipts")).into_iter().flatten().flatten().filter_map(|e| std::fs::read_to_string(e.path()).ok()).filter_map(|t| serde_json::from_str::<serde_json::Value>(&t).ok()).filter(|r| r["command"] == "transform" && r["runner"] == "in_process").count()
+}
+
+fn walk_files(dir: &Path) -> Vec<PathBuf> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(d) = stack.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() && !p.is_symlink() {
+                stack.push(p);
+            } else {
+                out.push(p);
+            }
+        }
+    }
+    out
 }

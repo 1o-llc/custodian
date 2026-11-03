@@ -37,8 +37,12 @@ pub fn before_step(ctx: &Ctx, job: Option<&str>, _step: &str, _kind: &str, _memb
     let Some(folder) = crate::readings::job_folder(ctx, job)? else { return Ok(()) };
     let jf = custodian_kit::jobs::job_file(&folder);
     let Some(budget) = step_time::budget_of(&store, &jf)? else { return Ok(()) };
+    // set only when it moves: a campaign's isolated nodes read the environment on other threads, and the floor its
+    // job gives is the same for every shared node, so the variable is written once
     if let Some(p) = budget.battery {
-        std::env::set_var(custodian_kit::power::BATTERY_MIN_ENV, p.to_string());
+        if std::env::var(custodian_kit::power::BATTERY_MIN_ENV).ok().as_deref() != Some(p.to_string().as_str()) {
+            std::env::set_var(custodian_kit::power::BATTERY_MIN_ENV, p.to_string());
+        }
     }
     Ok(())
 }

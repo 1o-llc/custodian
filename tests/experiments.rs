@@ -308,6 +308,7 @@ fn a_replay_that_does_not_hold_is_refused_by_the_preflight_and_writes_nothing() 
     let r = run(&c, &["experiment", "run", spec.to_str().unwrap()]);
     assert_eq!(r.code, 2, "{}", r.all());
     assert!(r.all().contains("notes.txt: as declared before: sha256 "), "{}", r.all());
+    assert!(r.all().contains("[CUST0034]"), "a preflight that does not authorize is custodian's refusal (the kit's NotAuthorized), not CUST2101: {}", r.all());
     assert_eq!(std::fs::read_to_string(c.join("src/lib.rs")).unwrap(), LIB, "nothing written");
     assert!(!c.join("scripts").exists() && c.join("notes.txt").exists());
     assert!(!receipts(&c).iter().any(|x| x["command"] == "transform"), "no transform ran");

@@ -63,6 +63,9 @@ pub fn run(ctx: &mut Ctx, l: &ExperimentCampaign) -> Result<Ran> {
         None => crate::experimenting::data_folder(ctx, job.as_deref())?.map(|d| d.join("campaigns")).ok_or_else(|| Code::NeedsFolder.refuse(root.display()))?,
     };
     collision(&root, &storage)?;
+    // the job's battery floor set here, on this one thread, before any node runs (a shared node's lines then find it
+    // set and leave the environment alone while isolated nodes run on other threads)
+    crate::budget::before_step(ctx, job.as_deref(), "experiment campaign", custodian_kit::step_time::PREFLIGHT, 1)?;
     let line = Line::ExperimentCampaign(l.clone());
     let gov = Governor { loaded: &loaded, settings: project.settings.clone(), dir: storage.join(&loaded.plan.campaign_id), job, again: l.again };
     crate::runtime::under_job_lock(ctx, &line, |ctx| gov.govern(ctx, ran))
@@ -197,6 +200,18 @@ fn copy_state(from: &Path, to: &Path, exclude: &[String], want: &StateIdentity) 
     if to.exists() {
         return Err(Code::CampaignRefused.refuse(format!("{} is there already", to.display())));
     }
+    // a link the copy keeps points inside the copy: an absolute one, or one that climbs out of the tree, would let a
+    // node write through it into the state it was copied from (checked before anything is made)
+    for rel in files.keys() {
+        let src = from.join(rel);
+        if std::fs::symlink_metadata(&src).is_ok_and(|m| m.file_type().is_symlink()) {
+            let target = std::fs::read_link(&src).map_err(|e| Code::Write.refuse(format!("{}: {e}", src.display())))?;
+            let at = lexical(&src.parent().unwrap_or(from).join(&target));
+            if target.is_absolute() || !at.starts_with(lexical(from)) {
+                return Err(Code::CampaignRefused.refuse(format!("{rel} is a link to {}, outside the tree it is copied from: an isolated workspace could write through it", target.display())));
+            }
+        }
+    }
     let io = |p: &Path, e: std::io::Error| Code::Write.refuse(format!("{}: {e}", p.display()));
     std::fs::create_dir_all(to).map_err(|e| io(to, e))?;
     for rel in files.keys() {
@@ -240,6 +255,83 @@ fn fresh(base: &Path) -> PathBuf {
     (2..).map(|k| base.with_file_name(format!("{name}.{k}"))).find(|p| !p.exists()).unwrap_or_else(|| base.to_path_buf())
 }
 
+/// A file the code digest reads: Rust source and the manifests.
+fn is_source(rel: &str) -> bool {
+    let name = rel.rsplit('/').next().unwrap_or(rel);
+    rel.ends_with(".rs") || name == "Cargo.toml" || name == "Cargo.lock"
+}
+
+fn show_tools(t: &[(String, Option<String>, Option<String>)]) -> String {
+    t.iter().map(|(n, v, d)| format!("{n} {} {}", v.as_deref().unwrap_or("-"), d.as_deref().unwrap_or("-"))).collect::<Vec<_>>().join("; ")
+}
+
+/// `--again` over a kept run: the project must be at a state that run recorded in it (its start, or a node's start or
+/// accepted state there), else refused with what to put back.
+fn nameable(kept: &CampaignProgress, root: &Path, now: &StateIdentity) -> Result<()> {
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let mut named: Vec<&StateIdentity> = kept.start.iter().collect();
+    named.extend(kept.workspaces.get("shared").and_then(|w| w.accepted.as_ref()));
+    for r in kept.nodes.values().filter(|r| r.workspace_path.as_deref().map(canon) == Some(canon(root))) {
+        named.extend(r.start.iter().chain(r.accepted.iter()));
+    }
+    if named.contains(&now) {
+        return Ok(());
+    }
+    let last = kept.workspaces.get("shared").and_then(|w| w.accepted.clone()).or_else(|| kept.start.clone());
+    let dirty: Vec<String> = kept.nodes.values().filter(|r| r.state == Some(StateAction::Discarded) && r.workspace_path.as_deref().map(canon) == Some(canon(root))).flat_map(|r| r.findings.iter().map(move |f| format!("{}: {f}", r.id))).collect();
+    Err(Code::CampaignStateMoved.refuse(format!(
+        "{} is {}, a state run {} never recorded (it left the project's accepted state at {}){}: put the project back to that state, then run --again",
+        root.display(),
+        now.digest,
+        kept.run_id,
+        last.map(|l| l.digest).unwrap_or_else(|| "none".into()),
+        if dirty.is_empty() { String::new() } else { format!("; what it could not put back: {}", dirty.join(" · ")) }
+    )))
+}
+
+/// Node `id` was running when the process ended: its workspace undone through the transform records its run kept
+/// (newest first, each by the declared `transform --revert`), then read again; it must be the state the node started
+/// from, else refused with exactly what was found. A node with no mark never ran anything (its mark is written before
+/// its experiment line); a node that made its own isolated workspace runs again in a new one, so its old one is left.
+fn recover(ctx: &mut Ctx, run_dir: &Path, plan: &CampaignPlan, id: &str, exclude: &[String], job: Option<&String>) -> Result<String> {
+    let Some(node) = plan.node(id) else { return Ok(format!("{id}: interrupted, no longer in the plan")) };
+    let file = run_dir.join(NODES).join(id).join(MARK);
+    let Some(mark) = std::fs::read(&file).ok().and_then(|b| serde_json::from_slice::<Mark>(&b).ok()) else {
+        return Ok(format!("{id}: interrupted before it ran anything; it runs again"));
+    };
+    if node.strategy == WorkspaceStrategy::Isolated {
+        return Ok(format!("{id}: interrupted in its own workspace {}; it runs again in a new one", mark.workspace.display()));
+    }
+    let shared = mark.workspace == ctx.root();
+    let mut own;
+    let wctx: &mut Ctx = if shared {
+        ctx
+    } else {
+        own = Ctx::at(&mark.workspace)?;
+        &mut own
+    };
+    let (now, _) = state_of(&mark.workspace, exclude)?;
+    if now == mark.start {
+        return Ok(format!("{id}: interrupted; {} is at the state it started from; it runs again", mark.workspace.display()));
+    }
+    let records = records_since(wctx, mark.after_seq);
+    let mut said = Vec::new();
+    let (done, why) = put_back(wctx, &records, if shared { job } else { None }, &mut said);
+    let (after, _) = state_of(&mark.workspace, exclude)?;
+    if why.is_some() || after != mark.start {
+        return Err(Code::CampaignStateMoved.refuse(format!(
+            "{id} was interrupted in {}: {done} of {} of its transforms put back ({}){}; the workspace is {}, the state it started from {}: put it back to that state by hand, or run the campaign fresh with --again",
+            mark.workspace.display(),
+            records.len(),
+            said.join(" · "),
+            why.map(|w| format!(", then {w}")).unwrap_or_default(),
+            after.digest,
+            mark.start.digest
+        )));
+    }
+    Ok(format!("{id}: interrupted; {done} transforms put back newest first ({}); {} is at the state it started from; it runs again", said.join(" · "), mark.workspace.display()))
+}
+
 fn file_ref(path: &Path) -> Result<FileRef> {
     let bytes = std::fs::read(path).map_err(|e| Code::Write.refuse(format!("{}: {e}", path.display())))?;
     Ok(FileRef { path: path.to_path_buf(), digest: experiments::campaign::digest::bytes(&bytes) })
@@ -276,20 +368,44 @@ impl Governor<'_> {
         let root = ctx.root().to_path_buf();
         let exclude = plan.exclude.clone();
         let progress_file = self.dir.join(PROGRESS);
-        let (now, _) = state_of(&root, &exclude)?;
+        let (mut now, files) = state_of(&root, &exclude)?;
         let tools = tools();
-        // strict: the writer's identity is established before anything runs, or nothing runs
-        if plan.rigor == Rigor::Strict && plan.specs.iter().any(|s| !s.changes.is_empty()) && !tools.iter().any(|t| t.name == "code-passenger" && t.digest.is_some()) {
-            return Err(Code::CampaignRefused.refuse("strict: the writer's digest cannot be established (no code-passenger on PATH)"));
+        if plan.rigor == Rigor::Strict {
+            // strict: the writer's identity is established before anything runs, or nothing runs
+            if plan.specs.iter().any(|s| !s.changes.is_empty()) && !tools.iter().any(|t| t.name == "code-passenger" && t.digest.is_some()) {
+                return Err(Code::CampaignRefused.refuse("strict: the writer's digest cannot be established (no code-passenger on PATH)"));
+            }
+            // and its starting state is exact: nothing the code digest reads is left out
+            for e in &exclude {
+                let all = custodian_kit::provenance::tree_files(&root)?;
+                if let Some(p) = all.keys().filter(|p| *p == e || p.starts_with(&format!("{e}/"))).find(|p| is_source(p)) {
+                    return Err(Code::CampaignRefused.refuse(format!("strict: exclude `{e}` leaves out source the code digest reads ({p}); strict's starting state is exact")));
+                }
+            }
         }
-        let mut runner = match (progress_file.exists(), self.again) {
-            (true, false) => {
-                let kept = experiments::read_campaign_progress(&progress_file).map_err(|e| Code::CampaignRefused.refuse(format!("{}: {e}", progress_file.display())))?;
+        let _ = files;
+        let kept = progress_file.exists().then(|| experiments::read_campaign_progress(&progress_file).map_err(|e| Code::CampaignRefused.refuse(format!("{}: {e}", progress_file.display())))).transpose()?;
+        let mut runner = match (kept, self.again) {
+            (Some(kept), false) => {
                 let done = self.dir.join(RUNS).join(&kept.run_id).join(RESULT);
                 if done.is_file() {
-                    return self.finished(ctx, &done, &now, ran);
+                    return self.finished(ctx, &done, &kept, &now, ran);
                 }
+                // each node the process ended in: undone through its own records, back to the state it started from
+                let run_dir = self.dir.join(RUNS).join(&kept.run_id);
+                for id in &kept.running {
+                    let line = recover(ctx, &run_dir, plan, id, &exclude, self.job.as_ref())?;
+                    ran.say(line);
+                }
+                now = state_of(&root, &exclude)?.0;
                 let r = CampaignRunner::resume(plan.clone(), kept).map_err(|e| Code::CampaignRefused.refuse(e.0.join(" · ")))?;
+                if plan.rigor == Rigor::Strict {
+                    let then: Vec<(String, Option<String>, Option<String>)> = r.progress().tools.iter().map(|t| (t.name.clone(), t.version.clone(), t.digest.clone())).collect();
+                    let here: Vec<(String, Option<String>, Option<String>)> = tools.iter().map(|t| (t.name.clone(), t.version.clone(), t.digest.clone())).collect();
+                    if !then.is_empty() && then != here {
+                        return Err(Code::CampaignRefused.refuse(format!("strict: run {} began with other tools ({}); these are {}: run it fresh with --again", r.progress().run_id, show_tools(&then), show_tools(&here))));
+                    }
+                }
                 let want = r.workspace("shared").and_then(|w| w.accepted.clone()).or_else(|| r.start_state().cloned());
                 if want.as_ref() != Some(&now) {
                     return Err(Code::CampaignStateMoved.refuse(format!("{} is {} ({} files); run {} recorded its accepted state {}: put it back, or run the campaign fresh with --again", root.display(), now.digest, now.files, r.progress().run_id, want.map(|w| w.digest).unwrap_or_else(|| "none".into()))));
@@ -298,12 +414,17 @@ impl Governor<'_> {
                 ran.say(format!("resumed run {}: {kept_nodes} of {} nodes kept as they completed", r.progress().run_id, plan.nodes.len()));
                 r
             }
-            _ => {
+            (kept, _) => {
+                // --again over a run kept: only from a state that run can name, never a tree it left dirty
+                if let Some(k) = &kept {
+                    nameable(k, &root, &now)?;
+                }
                 // a run of its own: named by the time, never a run kept before it
                 let id = fresh(&self.dir.join(RUNS).join(format!("{}-{}", plan.campaign_id, crate::journal::stamp())));
                 CampaignRunner::new(plan.clone(), &id.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
             }
         };
+        runner.set_tools(tools.clone());
         runner.set_start(now.clone());
         let run_dir = self.dir.join(RUNS).join(&runner.progress().run_id);
         let plan_file = run_dir.join(PLAN);
@@ -337,12 +458,12 @@ impl Governor<'_> {
     }
 
     /// The run kept has a result: it answers again while the project is at the state it left; else refused.
-    fn finished(&self, ctx: &mut Ctx, file: &Path, now: &StateIdentity, mut ran: Ran) -> Result<Ran> {
+    fn finished(&self, ctx: &mut Ctx, file: &Path, kept: &CampaignProgress, now: &StateIdentity, mut ran: Ran) -> Result<Ran> {
         let result = experiments::read_campaign_result(file).map_err(|e| Code::CampaignRefused.refuse(format!("{}: {e}", file.display())))?;
         if result.plan_digest != self.loaded.plan.digest {
             return Err(Code::CampaignRefused.refuse(format!("run {} completed with plan {}; the plan is {} now: run it fresh with --again", result.run_id, result.plan_digest, self.loaded.plan.digest)));
         }
-        let left = result.workspaces.iter().find(|w| w.id == "shared").and_then(|w| w.accepted.clone()).or_else(|| result.start.clone());
+        let left = kept.workspaces.get("shared").and_then(|w| w.accepted.clone()).or_else(|| kept.start.clone());
         if left.as_ref() != Some(now) {
             return Err(Code::CampaignStateMoved.refuse(format!("run {} completed and left {}; {} is {} now: run it fresh with --again", result.run_id, left.map(|w| w.digest).unwrap_or_default(), ctx.root().display(), now.digest)));
         }
@@ -365,6 +486,9 @@ impl Governor<'_> {
         }
         if let Some(s) = &result.stopped {
             ran.say(format!("stopped: {s}"));
+        }
+        if let Some(stop) = &result.stop {
+            ran.say(format!("running when it stopped, each run to its end: {}", if stop.in_flight.is_empty() { "none".into() } else { stop.in_flight.join(", ") }));
         }
         let rel = ctx.rel(file);
         ran.say(format!("result: {rel}"));
@@ -392,11 +516,16 @@ fn status(result: &CampaignResult, ran: &mut Ran) {
 fn tools() -> Vec<ToolVersion> {
     let digest = |p: &Path| std::fs::read(p).ok().map(|b| experiments::campaign::digest::bytes(&b));
     let me = std::env::current_exe().ok();
+    let mine = me.as_deref().and_then(digest);
     let passenger = crate::maint::passenger_path();
+    // the writer's own word for its version (`code_passenger 0.6.0 (custodian_kit 0.5.0)`), as an argv line
+    use xccute_runtime::ShellCommand;
+    let version = passenger.as_ref().and_then(|p| xccute_runtime::CommandSpec::new(p.display().to_string()).args(vec!["--version".to_string()]).to_command().output().ok()).and_then(|o| String::from_utf8_lossy(&o.stdout).lines().next().map(str::to_owned));
     vec![
-        ToolVersion { name: "custodian".into(), version: Some(env!("CARGO_PKG_VERSION").into()), digest: me.as_deref().and_then(digest), path: me },
-        ToolVersion { name: "experiments".into(), version: Some(experiments::VERSION.into()), path: None, digest: None },
-        ToolVersion { name: "code-passenger".into(), version: None, digest: passenger.as_deref().and_then(digest), path: passenger },
+        ToolVersion { name: "custodian".into(), version: Some(env!("CARGO_PKG_VERSION").into()), digest: mine.clone(), path: me.clone() },
+        // linked into custodian: its digest is the binary's that carries it
+        ToolVersion { name: "experiments".into(), version: Some(format!("{} (linked into custodian)", experiments::VERSION)), path: me, digest: mine },
+        ToolVersion { name: "code-passenger".into(), version, digest: passenger.as_deref().and_then(digest), path: passenger },
     ]
 }
 
@@ -571,6 +700,31 @@ fn refused(node: &PlanNode, why: String) -> NodeRecord {
     r
 }
 
+/// A running node's mark, kept in its folder under the run before it runs anything (`running.json`).
+#[derive(Debug, Clone, serde::Serialize, serde::Deserialize)]
+struct Mark {
+    workspace: PathBuf,
+    start: StateIdentity,
+    after_seq: i64,
+}
+
+const MARK: &str = "running.json";
+
+/// `records` put back, newest first, each through the declared `transform --revert`; each line said in `said`. How
+/// many completed, and why the next did not.
+fn put_back(ctx: &mut Ctx, records: &[(PathBuf, custodian_kit::transform::TransformRecord)], job: Option<&String>, said: &mut Vec<String>) -> (usize, Option<String>) {
+    let mut done = 0;
+    for (file, _) in records.iter().rev() {
+        let back = facade::execute(ctx, &Line::Transform(surface::Transform { revert: Some(file.clone().into_os_string()), job: job.cloned().map(Into::into), ..surface::Transform::default() }), crate::cli::handle);
+        said.push(format!("transform --revert {} → {} ({}) receipt #{}", ctx.rel(file), back.code, back.receipt.reason, back.receipt.seq));
+        if back.code != 0 {
+            return (done, Some(format!("the revert of {} did not complete: {}", ctx.rel(file), back.said.join(" · "))));
+        }
+        done += 1;
+    }
+    (done, None)
+}
+
 /// The newest receipt number in this context's journal.
 fn last_seq(ctx: &Ctx) -> i64 {
     ctx.journal().and_then(|j| j.receipts()).ok().and_then(|r| r.last().map(|x| x.seq)).unwrap_or(0)
@@ -581,10 +735,14 @@ fn last_seq(ctx: &Ctx) -> i64 {
 fn records_since(ctx: &Ctx, after: i64) -> Vec<(PathBuf, custodian_kit::transform::TransformRecord)> {
     let Ok(receipts) = ctx.journal().and_then(|j| j.receipts()) else { return Vec::new() };
     let mut out: Vec<(PathBuf, custodian_kit::transform::TransformRecord)> = Vec::new();
-    for r in receipts.iter().filter(|r| r.seq > after && r.command == "transform" && r.accepted) {
+    let mine = receipts.iter().filter(|r| r.seq > after && r.command == "transform" && r.accepted);
+    // a record put back already (its revert's own record, `<record>.revert.json`, named by a receipt) is not one to put
+    // back again
+    let reverted: std::collections::BTreeSet<PathBuf> = mine.clone().flat_map(|r| r.outputs.iter()).filter_map(|o| o.strip_suffix(".revert.json")).map(|o| ctx.root().join(format!("{o}.json"))).collect();
+    for r in mine {
         for o in r.outputs.iter().filter(|o| o.ends_with(".json") && !o.ends_with(".revert.json")) {
             let p = ctx.root().join(o);
-            if out.iter().any(|(q, _)| q == &p) {
+            if out.iter().any(|(q, _)| q == &p) || reverted.contains(&p) {
                 continue;
             }
             if let Some(rec) = std::fs::read_to_string(&p).ok().and_then(|t| serde_json::from_str::<custodian_kit::transform::TransformRecord>(&t).ok()).filter(|t| t.written) {
@@ -595,21 +753,31 @@ fn records_since(ctx: &Ctx, after: i64) -> Vec<(PathBuf, custodian_kit::transfor
     out
 }
 
-/// The changes between `start` and `candidate` no transform record declares: a path no record names, or one whose
-/// content is not what its last record left.
+/// The changes between `start` and `candidate` no transform record declares: a path no record names, one whose
+/// content is not what its last record left, or one whose mode moved when no record declares that mode (a replay's
+/// postcondition `replay <path>: sha256 <hex>, mode <bits>`).
 fn undeclared(start: &BTreeMap<String, String>, candidate: &BTreeMap<String, String>, records: &[(PathBuf, custodian_kit::transform::TransformRecord)]) -> Vec<String> {
-    let mut declared: BTreeMap<&str, &str> = BTreeMap::new();
+    let mut declared: BTreeMap<&str, (&str, Option<String>)> = BTreeMap::new();
     for (_, r) in records {
         for f in &r.files {
-            declared.insert(f.path.as_str(), f.after.as_str());
+            let mode = r.postconditions.iter().find_map(|(p, _)| p.strip_prefix(&format!("replay {}: ", f.path)).and_then(|rest| rest.rsplit_once(", mode ")).map(|(_, m)| m.trim().to_owned()));
+            declared.insert(f.path.as_str(), (f.after.as_str(), mode));
         }
     }
-    let content = |v: Option<&String>| v.map(|v| v.split(' ').next().unwrap_or_default().trim_start_matches("sha256:").to_owned()).unwrap_or_else(|| "none".into());
+    let part = |v: Option<&String>, i: usize| v.and_then(|v| v.split(' ').nth(i)).map(|x| x.trim_start_matches("sha256:").to_owned());
     custodian_kit::provenance::differences(start, candidate)
         .into_iter()
-        .filter(|d| match declared.get(&d[1..]) {
-            None => true,
-            Some(after) => content(candidate.get(&d[1..])) != *after,
+        .filter(|d| {
+            let p = &d[1..];
+            match declared.get(p) {
+                None => true,
+                Some((after, mode)) => {
+                    let content = part(candidate.get(p), 0).unwrap_or_else(|| "none".into());
+                    let (was, now) = (part(start.get(p), 1), part(candidate.get(p), 1));
+                    let mode_moved = was.is_some() && was != now && mode.as_ref() != now.as_ref();
+                    content != *after || mode_moved
+                }
+            }
         })
         .collect()
 }
@@ -649,6 +817,13 @@ fn hosted(ctx: &mut Ctx, env: &Env, node: &PlanNode, expected: Option<StateIdent
     }
     rec.bound_spec = file_ref(&spec_file).ok();
     let before = last_seq(ctx);
+    // what a resume needs to undo this node if the process ends before its end is recorded: where it runs, the
+    // state it started from, the last receipt before it (its transforms are every one after it)
+    let mark = Mark { workspace: ws.to_path_buf(), start: start.clone(), after_seq: before };
+    if let Err(e) = write_json(&node_dir.join(MARK), &mark) {
+        rec.reason = Some(e.to_string());
+        return rec;
+    }
     let line = Line::ExperimentRun(surface::ExperimentRun { spec: spec_file.clone().into_os_string(), storage: Some(node_dir.join("experiment").into_os_string()), job: job.clone().map(Into::into) });
     let out = facade::execute(ctx, &line, crate::cli::handle);
     let execution = match (&out.refusal, out.receipt.outputs.first()) {
@@ -666,50 +841,49 @@ fn hosted(ctx: &mut Ctx, env: &Env, node: &PlanNode, expected: Option<StateIdent
         (Some(r), _) => Execution::Refused(r.to_string()),
         (None, None) => Execution::Failed(format!("experiment run #{} named no result", out.receipt.seq)),
     };
-    let (candidate, candidate_files) = match state_of(ws, &env.exclude) {
-        Ok(s) => s,
-        Err(e) => {
-            rec.reason = Some(e.to_string());
-            return rec;
-        }
-    };
-    rec.candidate = Some(candidate.clone());
+    // what the experiment concluded is the node's whatever happens to the workspace after
+    if let Execution::Concluded { promotion, outcome, result, run_id, observations } = &execution {
+        rec.promotion = Some(*promotion);
+        rec.outcome = Some(*outcome);
+        rec.result = Some(result.clone());
+        rec.run_id = Some(run_id.clone());
+        rec.observations = Some(observations.clone());
+    }
     let records = records_since(ctx, before);
-    let changed = undeclared(&start_files, &candidate_files, &records);
-    let d = CampaignRunner::decide(node, &execution, &changed);
+    let d = match state_of(ws, &env.exclude) {
+        Ok((candidate, candidate_files)) => {
+            rec.candidate = Some(candidate);
+            let changed = undeclared(&start_files, &candidate_files, &records);
+            CampaignRunner::decide(node, &execution, &changed)
+        }
+        // the candidate cannot be read: never accepted; put back as far as the records go, then read again
+        Err(e) => Decision { status: NodeStatus::Refused, accept: false, reason: Some(format!("the candidate state could not be read: {e}")), findings: Vec::new() },
+    };
     rec.status = d.status;
     rec.reason = d.reason;
     rec.findings = d.findings;
-    if let Execution::Concluded { promotion, outcome, result, run_id, observations } = execution {
-        rec.promotion = Some(promotion);
-        rec.outcome = Some(outcome);
-        rec.result = Some(result);
-        rec.run_id = Some(run_id);
-        rec.observations = Some(observations);
-    }
     if d.accept {
         rec.state = Some(StateAction::Accepted);
-        rec.accepted = Some(candidate);
+        rec.accepted = rec.candidate.clone();
     } else {
-        // put back, newest first, each through the declared `transform --revert`; then read again
-        let mut why = None;
-        for (file, _) in records.iter().rev() {
-            let back = facade::execute(ctx, &Line::Transform(surface::Transform { revert: Some(file.clone().into_os_string()), job: job.clone().map(Into::into), ..surface::Transform::default() }), crate::cli::handle);
-            rec.restore.push(format!("transform --revert {} → {} ({}) receipt #{}", ctx.rel(file), back.code, back.receipt.reason, back.receipt.seq));
-            if back.code != 0 {
-                why = Some(format!("the revert of {} did not complete: {}", ctx.rel(file), back.said.join(" · ")));
-                break;
+        let (back, why) = put_back(ctx, &records, job.as_ref(), &mut rec.restore);
+        let now = state_of(ws, &env.exclude);
+        match (&why, &now) {
+            (None, Ok((n, _))) if n == &start => {
+                rec.state = Some(StateAction::Restored);
+                rec.accepted = Some(start);
+            }
+            _ => {
+                rec.state = Some(StateAction::Discarded);
+                rec.left = now.as_ref().ok().map(|(n, _)| n.clone());
+                let read = match &now {
+                    Ok((n, _)) => n.digest.clone(),
+                    Err(e) => format!("unreadable ({e})"),
+                };
+                let why = why.unwrap_or_else(|| format!("after {back} reverts the workspace is {read}, not its start {}", start.digest));
+                rec.findings.push(format!("the previous accepted state could not be put back: {why}"));
             }
         }
-        let now = state_of(ws, &env.exclude).map(|(s, _)| s).ok();
-        if why.is_none() && now.as_ref() == Some(&start) {
-            rec.state = Some(StateAction::Restored);
-        } else {
-            rec.state = Some(StateAction::Discarded);
-            let why = why.unwrap_or_else(|| format!("after {} reverts the workspace is {}, not its start {}", records.len(), now.map(|n| n.digest).unwrap_or_default(), start.digest));
-            rec.findings.push(format!("the previous accepted state could not be put back: {why}"));
-        }
-        rec.accepted = Some(start);
     }
     if let Ok(all) = ctx.journal().and_then(|j| j.receipts()) {
         let dir = ctx.layout().ok().and_then(|l| l.dir::<crate::layout::ReceiptFile>(&[("seq", "1")]).ok());
@@ -734,8 +908,14 @@ mod tests {
             "schema": "x", "spec_name": "s", "spec": "s", "spec_digest": "d", "operation": "replay", "target": "*",
             "files": [{"path": "a", "before": "aa", "after": "a2"}], "checks": [], "postconditions": [], "written": true
         })).unwrap();
-        let u = undeclared(&start, &cand, &[(PathBuf::from("r.json"), rec)]);
+        let u = undeclared(&start, &cand, &[(PathBuf::from("r.json"), rec.clone())]);
         assert_eq!(u, ["~b", "+c"], "a's change is declared; b's mode and c are not");
+        // a declared file whose mode moved too: undeclared, unless the replay declares that mode
+        let cand = m(&[("a", "sha256:a2 755"), ("b", "sha256:bb 644")]);
+        assert_eq!(undeclared(&start, &cand, &[(PathBuf::from("r.json"), rec.clone())]), ["~a"]);
+        let mut with_mode = rec;
+        with_mode.postconditions = vec![("replay a: sha256 a2, mode 755".into(), true)];
+        assert!(undeclared(&start, &cand, &[(PathBuf::from("r.json"), with_mode)]).is_empty());
     }
 
     #[test]
