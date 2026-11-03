@@ -752,6 +752,12 @@ fn exploratory_never_accepts_an_undeclared_write_into_the_shared_lineage_and_aga
     let again = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), "--again"], Some(&bin));
     assert_eq!(again.code, 2, "{}", again.all());
     assert!(again.all().contains("[CUST2103]") && again.all().contains("never recorded") && again.all().contains("+stray.txt") && again.all().contains("put the project back"), "{}", again.all());
+    // nor from another storage: the journal says this campaign last left the project dirty
+    let elsewhere = a.join("other-storage");
+    let other = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), elsewhere.to_str().unwrap(), "--again"], Some(&bin));
+    assert!(other.code == 2 && other.all().contains("[CUST2103]") && other.all().contains("campaign dirty last left"), "{}", other.all());
+    let first_elsewhere = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), elsewhere.to_str().unwrap()], Some(&bin));
+    assert!(first_elsewhere.code == 2 && first_elsewhere.all().contains("campaign dirty last left"), "a first run in another storage too: {}", first_elsewhere.all());
     std::fs::remove_file(c.join("stray.txt")).unwrap();
     let fresh_run = run_with(&c, &["experiment", "campaign", file.to_str().unwrap(), "--again"], Some(&bin));
     assert_ne!(result_of(&c, &fresh_run.out).run_id, res.run_id, "the project put back to a state the run recorded: a fresh run");
@@ -852,7 +858,13 @@ fn links_out_of_the_tree_and_strict_excludes_of_source_are_refused() {
     assert_eq!(std::fs::read_link(ws.join("in-link")).unwrap(), PathBuf::from("notes.txt"));
     let strict = doc(&a, "strict.json", r#"{"id":"strict","rigor":"strict","exclude":["src"],"steps":[{"run":{"id":"X","spec":"X.json"}}]}"#);
     let r = run_with(&c, &["experiment", "campaign", strict.to_str().unwrap()], Some(&bin));
-    assert!(r.code == 2 && r.all().contains("strict: exclude `src` leaves out source the code digest reads (src/lib.rs)"), "{}", r.all());
+    assert!(r.code == 2 && r.all().contains("strict: exclude `src` leaves out src/lib.rs, a file of the starting tree"), "{}", r.all());
+    // any file of the starting tree, source or not
+    std::fs::create_dir_all(c.join("run")).unwrap();
+    std::fs::write(c.join("run/out.txt"), "kept output\n").unwrap();
+    let strict = doc(&a, "strict-run.json", r#"{"id":"strict-run","rigor":"strict","exclude":["run"],"steps":[{"run":{"id":"X","spec":"X.json"}}]}"#);
+    let r = run_with(&c, &["experiment", "campaign", strict.to_str().unwrap()], Some(&bin));
+    assert!(r.code == 2 && r.all().contains("strict: exclude `run` leaves out run/out.txt"), "{}", r.all());
 }
 
 /// `custodian experiment campaign FILE` started, killed once node `id` is running and `when` holds.
@@ -891,4 +903,56 @@ fn walk_files(dir: &Path) -> Vec<PathBuf> {
         }
     }
     out
+}
+
+
+/// A mark naming an older receipt than its node's (as a mark from a journal read wrong would): the resume puts back
+/// only this node's own transforms, one at a time, and stops at its start; A's accepted transform is never touched.
+#[test]
+fn a_stale_mark_never_puts_back_another_nodes_transform() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("stale-mark");
+    let a = fresh("campaign-stale-mark-artifacts");
+    experiment(&a, "A", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    experiment(&a, "B", Some(1), Some(&step(&a, 1)), 2, |s| s.protocol.candidate.push(command("slow candidate", "sleep", &["6"])));
+    let file = doc(&a, "stale.json", r#"{"id":"stale","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}}]}}]}"#);
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/stale/progress.json", "B", |c| std::fs::read_to_string(c.join("STATE.txt")).unwrap_or_default() == state(2) && transformed(c) == 2);
+    let runs = c.join(".custodian/data/campaigns/stale/runs");
+    let mark = walk_files(&runs).into_iter().find(|p| p.ends_with("nodes/B/running.json")).unwrap();
+    let mut m: serde_json::Value = serde_json::from_str(&std::fs::read_to_string(&mark).unwrap()).unwrap();
+    m["after_seq"] = serde_json::json!(0);
+    std::fs::write(&mark, m.to_string()).unwrap();
+    let out = campaign(&c, &bin, &file, &[], 0);
+    assert!(out.contains("B: interrupted; 1 transforms put back newest first"), "{out}");
+    let reverts: Vec<String> = writes(&c).into_iter().filter(|l| l.contains(" --revert ")).collect();
+    assert_eq!(reverts.len(), 1, "only B's: {reverts:?}");
+    assert!(reverts[0].contains("state-1-to-2"), "{reverts:?}");
+    let r = result_of(&c, &out);
+    assert_eq!(node(&r, "B").run.start, node(&r, "A").run.accepted, "B ran again from state 1");
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(2));
+}
+
+/// The process ended while code-passenger wrote: the tree moved and no receipt names the record on disk. The resume
+/// is refused, naming that record and what to do with it.
+#[test]
+fn a_write_no_receipt_names_is_refused_with_the_record_to_put_back() {
+    let Some(bin) = writer() else { return eprintln!("skipped: no code-passenger with the transform line") };
+    let c = project("unreceipted");
+    let a = fresh("campaign-unreceipted-artifacts");
+    experiment(&a, "A", Some(0), Some(&step(&a, 0)), 1, |_| {});
+    experiment(&a, "B", Some(1), Some(&step(&a, 1)), 2, |s| s.protocol.prepare.push(command("long enough to stop", "sleep", &["6"])));
+    let file = doc(&a, "unreceipted.json", r#"{"id":"unreceipted","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}}]}}]}"#);
+    let runs = c.join(".custodian/data/campaigns/unreceipted/runs");
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/unreceipted/progress.json", "B", |_| walk_files(&runs).iter().any(|p| p.ends_with("nodes/B/running.json")));
+    // what code-passenger leaves when the process ends mid-write: the file written, its record on disk, no receipt
+    std::thread::sleep(std::time::Duration::from_millis(1100));
+    std::fs::write(c.join("STATE.txt"), state(2)).unwrap();
+    let record = c.join(".custodian/data/transforms/state-1-to-2/unreceipted.json");
+    std::fs::create_dir_all(record.parent().unwrap()).unwrap();
+    std::fs::write(&record, "{}\n").unwrap();
+    let r = run_with(&c, &["experiment", "campaign", file.to_str().unwrap()], Some(&bin));
+    assert_eq!(r.code, 2, "{}", r.all());
+    let all = r.all();
+    assert!(all.contains("[CUST2103]") && all.contains("B was interrupted") && all.contains("named by no receipt") && all.contains(&record.display().to_string()) && all.contains("put each of those files back to its digest before"), "{all}");
+    assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(2), "nothing was put back by guess");
 }

@@ -35,6 +35,10 @@ use uh_tom_mick::AtomicAdmission;
 
 /// The journal event a campaign's result makes.
 pub const EVENT: &str = "campaign";
+/// The journal event of each state the campaign line leaves the project in, whatever its storage: `start`,
+/// `accepted` (a shared node's end, its candidate accepted or put back) or `left` (put back it could not be), its
+/// detail `<digest> <storage>`.
+pub const STATE_EVENT: &str = "campaign-state";
 /// Beside the runs: the progress of the run a resume continues.
 pub const PROGRESS: &str = "progress.json";
 const RUNS: &str = "runs";
@@ -255,12 +259,6 @@ fn fresh(base: &Path) -> PathBuf {
     (2..).map(|k| base.with_file_name(format!("{name}.{k}"))).find(|p| !p.exists()).unwrap_or_else(|| base.to_path_buf())
 }
 
-/// A file the code digest reads: Rust source and the manifests.
-fn is_source(rel: &str) -> bool {
-    let name = rel.rsplit('/').next().unwrap_or(rel);
-    rel.ends_with(".rs") || name == "Cargo.toml" || name == "Cargo.lock"
-}
-
 fn show_tools(t: &[(String, Option<String>, Option<String>)]) -> String {
     t.iter().map(|(n, v, d)| format!("{n} {} {}", v.as_deref().unwrap_or("-"), d.as_deref().unwrap_or("-"))).collect::<Vec<_>>().join("; ")
 }
@@ -289,6 +287,39 @@ fn nameable(kept: &CampaignProgress, root: &Path, now: &StateIdentity) -> Result
     )))
 }
 
+/// The state the campaign line leaves the project in, as a journal event (see [`STATE_EVENT`]).
+fn state_event(ctx: &Ctx, job: Option<&str>, campaign: &str, word: &str, digest: &str, storage: &Path) -> Result<()> {
+    match ctx.journal.as_ref() {
+        Some(j) => j.event(STATE_EVENT, job, campaign, word, &format!("{digest} {}", storage.display()), None).map(|_| ()),
+        None => Ok(()),
+    }
+}
+
+/// A run of campaign `id` (a first one in another storage, or `--again`) over a project this campaign last left in a
+/// state it could not put back: refused unless the project is at a state the line recorded (a start, an accepted
+/// state), whatever storage that was in.
+fn not_left_dirty(ctx: &Ctx, id: &str, now: &StateIdentity) -> Result<()> {
+    let Some(j) = ctx.journal.as_ref() else { return Ok(()) };
+    let events: Vec<_> = j.events_since(0)?.into_iter().filter(|e| e.kind == STATE_EVENT && e.subject == id).collect();
+    let Some(last) = events.last() else { return Ok(()) };
+    if last.state != "left" {
+        return Ok(());
+    }
+    let digest = |d: &str| d.split(' ').next().unwrap_or_default().to_owned();
+    if events.iter().any(|e| e.state != "left" && digest(&e.detail) == now.digest) {
+        return Ok(());
+    }
+    let storage = last.detail.split_once(' ').map(|(_, s)| s.to_owned()).unwrap_or_default();
+    let accepted = events.iter().rev().find(|e| e.state == "accepted" || e.state == "start").map(|e| digest(&e.detail)).unwrap_or_default();
+    Err(Code::CampaignStateMoved.refuse(format!(
+        "campaign {id} last left {} at {} (journal event {}, its storage {storage}): it could not put the project back, and the project is {} now, no state the line recorded; put it back to its last accepted state {accepted} (the run's result in {storage} names what was left), then run the line again",
+        ctx.root().display(),
+        digest(&last.detail),
+        last.n,
+        now.digest
+    )))
+}
+
 /// Node `id` was running when the process ended: its workspace undone through the transform records its run kept
 /// (newest first, each by the declared `transform --revert`), then read again; it must be the state the node started
 /// from, else refused with exactly what was found. A node with no mark never ran anything (its mark is written before
@@ -314,22 +345,87 @@ fn recover(ctx: &mut Ctx, run_dir: &Path, plan: &CampaignPlan, id: &str, exclude
     if now == mark.start {
         return Ok(format!("{id}: interrupted; {} is at the state it started from; it runs again", mark.workspace.display()));
     }
-    let records = records_since(wctx, mark.after_seq);
+    // only this node's own transforms: after its mark, and of a change spec its bound experiment names
+    let own_specs = node_changes(run_dir, id, wctx.root());
+    let records: Vec<_> = records_since(wctx, mark.after_seq).into_iter().filter(|(_, r)| own_specs.iter().any(|(path, name)| record_spec(wctx.root(), r) == *path || r.spec_name == *name)).collect();
     let mut said = Vec::new();
-    let (done, why) = put_back(wctx, &records, if shared { job } else { None }, &mut said);
-    let (after, _) = state_of(&mark.workspace, exclude)?;
+    let (mut done, mut why, mut after) = (0, None, now.clone());
+    // one at a time, newest first, reading the state after each: the walk stops at the node's start, never past it
+    for rec in records.iter().rev() {
+        let (n, w) = put_back(wctx, std::slice::from_ref(rec), if shared { job } else { None }, &mut said);
+        done += n;
+        after = state_of(&mark.workspace, exclude)?.0;
+        if w.is_some() {
+            why = w;
+            break;
+        }
+        if after == mark.start {
+            break;
+        }
+    }
     if why.is_some() || after != mark.start {
+        let unnamed = unnamed_records(wctx, &file);
         return Err(Code::CampaignStateMoved.refuse(format!(
-            "{id} was interrupted in {}: {done} of {} of its transforms put back ({}){}; the workspace is {}, the state it started from {}: put it back to that state by hand, or run the campaign fresh with --again",
+            "{id} was interrupted in {}: {done} of {} of its transforms put back ({}){}; the workspace is {}, the state it started from {}{}: put it back to that state by hand, or run the campaign fresh with --again",
             mark.workspace.display(),
             records.len(),
             said.join(" · "),
             why.map(|w| format!(", then {w}")).unwrap_or_default(),
             after.digest,
-            mark.start.digest
+            mark.start.digest,
+            if unnamed.is_empty() {
+                String::new()
+            } else {
+                format!("; on disk and named by no receipt (the process ended while code-passenger wrote): {} — each lists the files it wrote with their sha256 before and after; put each of those files back to its digest before (the bytes are kept in the workspace's .passenger objects under that digest), then run the line again", unnamed.iter().map(|p| p.display().to_string()).collect::<Vec<_>>().join(", "))
+            }
         )));
     }
     Ok(format!("{id}: interrupted; {done} transforms put back newest first ({}); {} is at the state it started from; it runs again", said.join(" · "), mark.workspace.display()))
+}
+
+/// The change specs node `id`'s bound experiment names (`nodes/<id>/experiment.json`): each file, canonical, and the
+/// change's own name.
+fn node_changes(run_dir: &Path, id: &str, root: &Path) -> Vec<(PathBuf, String)> {
+    let Ok(spec) = experiments::read_spec(run_dir.join(NODES).join(id).join("experiment.json")) else { return Vec::new() };
+    spec.mutation.changes.iter().map(|c| {
+        let path = if c.spec.is_absolute() { c.spec.clone() } else { root.join(&c.spec) };
+        let name = custodian_kit::change::ChangeSpec::from_path(&path).map(|s| s.name).unwrap_or_default();
+        (path.canonicalize().unwrap_or(path), name)
+    }).collect()
+}
+
+/// A transform record's change spec, canonical.
+fn record_spec(root: &Path, r: &custodian_kit::transform::TransformRecord) -> PathBuf {
+    let p = Path::new(&r.spec);
+    let p = if p.is_absolute() { p.to_path_buf() } else { root.join(p) };
+    p.canonicalize().unwrap_or(p)
+}
+
+/// Transform records on disk in this governed folder (its own transforms, its jobs'), written after `mark` was, that
+/// no receipt names: what a process that ended while code-passenger wrote leaves.
+fn unnamed_records(ctx: &Ctx, mark: &Path) -> Vec<PathBuf> {
+    let since = std::fs::metadata(mark).and_then(|m| m.modified()).ok();
+    let named: std::collections::BTreeSet<PathBuf> = ctx.journal().and_then(|j| j.receipts()).map(|rs| rs.iter().flat_map(|r| r.outputs.iter().map(|o| ctx.root().join(o))).collect()).unwrap_or_default();
+    let folder = ctx.root().join(crate::layout::FOLDER);
+    let mut dirs = vec![folder.join("data/transforms")];
+    for state in ["running", "done"] {
+        for job in std::fs::read_dir(folder.join("state/jobs").join(state)).into_iter().flatten().flatten() {
+            dirs.push(job.path().join(custodian_kit::jobs::JOB_DATA).join("transforms"));
+        }
+    }
+    let mut out = Vec::new();
+    while let Some(d) = dirs.pop() {
+        for e in std::fs::read_dir(&d).into_iter().flatten().flatten() {
+            let p = e.path();
+            if p.is_dir() {
+                dirs.push(p);
+            } else if p.extension().is_some_and(|x| x == "json") && !p.to_string_lossy().ends_with(".revert.json") && !named.contains(&p) && since.is_some_and(|t| e.metadata().and_then(|m| m.modified()).is_ok_and(|m| m >= t)) {
+                out.push(p);
+            }
+        }
+    }
+    out.sort();
+    out
 }
 
 fn file_ref(path: &Path) -> Result<FileRef> {
@@ -378,8 +474,8 @@ impl Governor<'_> {
             // and its starting state is exact: nothing the code digest reads is left out
             for e in &exclude {
                 let all = custodian_kit::provenance::tree_files(&root)?;
-                if let Some(p) = all.keys().filter(|p| *p == e || p.starts_with(&format!("{e}/"))).find(|p| is_source(p)) {
-                    return Err(Code::CampaignRefused.refuse(format!("strict: exclude `{e}` leaves out source the code digest reads ({p}); strict's starting state is exact")));
+                if let Some(p) = all.keys().find(|p| *p == e || p.starts_with(&format!("{e}/"))) {
+                    return Err(Code::CampaignRefused.refuse(format!("strict: exclude `{e}` leaves out {p}, a file of the starting tree; strict's starting state is exact")));
                 }
             }
         }
@@ -419,12 +515,15 @@ impl Governor<'_> {
                 if let Some(k) = &kept {
                     nameable(k, &root, &now)?;
                 }
+                // whatever storage it was kept in: never from a tree this campaign last left dirty
+                not_left_dirty(ctx, &plan.campaign_id, &now)?;
                 // a run of its own: named by the time, never a run kept before it
                 let id = fresh(&self.dir.join(RUNS).join(format!("{}-{}", plan.campaign_id, crate::journal::stamp())));
                 CampaignRunner::new(plan.clone(), &id.file_name().map(|n| n.to_string_lossy().into_owned()).unwrap_or_default())
             }
         };
         runner.set_tools(tools.clone());
+        state_event(ctx, self.job.as_deref(), &plan.campaign_id, "start", now.digest.as_str(), &self.dir)?;
         runner.set_start(now.clone());
         let run_dir = self.dir.join(RUNS).join(&runner.progress().run_id);
         let plan_file = run_dir.join(PLAN);
@@ -600,6 +699,12 @@ fn engine(ctx: &mut Ctx, env: &Env, runner: &mut CampaignRunner, progress_file: 
                 let expected = runner.expected_start(&node);
                 let root = ctx.root().to_path_buf();
                 let rec = hosted(ctx, env, &node, expected, &root, env.job.clone());
+                let (word, digest) = match (&rec.state, &rec.accepted, &rec.left) {
+                    (Some(StateAction::Discarded), _, left) => ("left", left.as_ref().map(|l| l.digest.clone()).unwrap_or_else(|| "unreadable".into())),
+                    (_, Some(a), _) => ("accepted", a.digest.clone()),
+                    _ => ("start", rec.start.as_ref().map(|s| s.digest.clone()).unwrap_or_default()),
+                };
+                keep(state_event(ctx, env.job.as_deref(), &env.loaded.plan.campaign_id, word, &digest, env.run_dir.parent().and_then(Path::parent).unwrap_or(&env.run_dir)));
                 keep(end(env, runner, rec, progress_file));
                 drop(slot);
                 continue;
@@ -726,8 +831,8 @@ fn put_back(ctx: &mut Ctx, records: &[(PathBuf, custodian_kit::transform::Transf
 }
 
 /// The newest receipt number in this context's journal.
-fn last_seq(ctx: &Ctx) -> i64 {
-    ctx.journal().and_then(|j| j.receipts()).ok().and_then(|r| r.last().map(|x| x.seq)).unwrap_or(0)
+fn last_seq(ctx: &Ctx) -> Result<i64> {
+    Ok(ctx.journal()?.receipts()?.last().map(|x| x.seq).unwrap_or(0))
 }
 
 /// The transform records written in this context after receipt `after`, in the order they were written: each named
@@ -774,7 +879,14 @@ fn undeclared(start: &BTreeMap<String, String>, candidate: &BTreeMap<String, Str
                 Some((after, mode)) => {
                     let content = part(candidate.get(p), 0).unwrap_or_else(|| "none".into());
                     let (was, now) = (part(start.get(p), 1), part(candidate.get(p), 1));
-                    let mode_moved = was.is_some() && was != now && mode.as_ref() != now.as_ref();
+                    // a mode a replay declares is the one the file must have; with none declared, a file the node
+                    // made must carry no execute bit (what a write makes by default) and a file it changed its old one
+                    let mode_moved = match (mode, &was, &now) {
+                        (Some(m), _, Some(n)) => m != n,
+                        (None, None, Some(n)) => u32::from_str_radix(n, 8).is_ok_and(|bits| bits & 0o111 != 0),
+                        (None, Some(w), Some(n)) => w != n,
+                        _ => false,
+                    };
                     content != *after || mode_moved
                 }
             }
@@ -816,7 +928,14 @@ fn hosted(ctx: &mut Ctx, env: &Env, node: &PlanNode, expected: Option<StateIdent
         return rec;
     }
     rec.bound_spec = file_ref(&spec_file).ok();
-    let before = last_seq(ctx);
+    // the journal unread is no number to undo from: the node is refused before it runs anything
+    let before = match last_seq(ctx) {
+        Ok(n) => n,
+        Err(e) => {
+            rec.reason = Some(format!("the journal cannot be read, so this node's transforms could not be told from others': {e}"));
+            return rec;
+        }
+    };
     // what a resume needs to undo this node if the process ends before its end is recorded: where it runs, the
     // state it started from, the last receipt before it (its transforms are every one after it)
     let mark = Mark { workspace: ws.to_path_buf(), start: start.clone(), after_seq: before };
@@ -916,6 +1035,17 @@ mod tests {
         let mut with_mode = rec;
         with_mode.postconditions = vec![("replay a: sha256 a2, mode 755".into(), true)];
         assert!(undeclared(&start, &cand, &[(PathBuf::from("r.json"), with_mode)]).is_empty());
+        // a file the node made: executable with no mode declared is undeclared; plain, or with its mode declared, not
+        let rec_new: custodian_kit::transform::TransformRecord = serde_json::from_value(serde_json::json!({
+            "schema": "x", "spec_name": "s", "spec": "s", "spec_digest": "d", "operation": "replay", "target": "*",
+            "files": [{"path": "n", "before": "none", "after": "nn"}], "checks": [], "postconditions": [], "written": true
+        })).unwrap();
+        let made = |mode: &str| m(&[("a", "sha256:aa 644"), ("b", "sha256:bb 644"), ("n", &format!("sha256:nn {mode}"))]);
+        assert_eq!(undeclared(&start, &made("755"), &[(PathBuf::from("r.json"), rec_new.clone())]), ["+n"]);
+        assert!(undeclared(&start, &made("644"), &[(PathBuf::from("r.json"), rec_new.clone())]).is_empty());
+        let mut declared_755 = rec_new;
+        declared_755.postconditions = vec![("replay n: sha256 nn, mode 755".into(), true)];
+        assert!(undeclared(&start, &made("755"), &[(PathBuf::from("r.json"), declared_755)]).is_empty());
     }
 
     #[test]
