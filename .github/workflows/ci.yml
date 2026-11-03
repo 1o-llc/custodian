@@ -53,6 +53,9 @@ jobs:
         run: cargo build --manifest-path ../code_passenger/Cargo.toml --bin code-passenger
       - name: Test
         # tests/cli.rs runs `git` and `cargo test` on the fixture project
+        env:
+          # the stable leg built the writer: a test that needs it fails rather than skips (common::passenger_required)
+          CUSTODIAN_TEST_PASSENGER_REQUIRED: ${{ matrix.rust == 'stable' && '1' || '0' }}
         run: cargo test --all-features
 
   clippy:
@@ -98,8 +101,8 @@ jobs:
           log="$RUNNER_TEMP/package.log"
           if cargo package --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
           cat "$log"
-          grep -qE 'no matching package named|candidate versions found which didn.t match' "$log" || exit 1
-          echo "a dependency at the version named is not on crates.io yet: the publish job builds the .crate once it is"
+          grep -qE 'no matching package named .custodian_kit.|failed to select a version for the requirement .custodian_kit = ' "$log" || exit 1
+          echo "custodian_kit at the version named is not on crates.io yet: the publish job builds the .crate once it is"
 
   publish:
     needs: [test, clippy]
@@ -160,7 +163,7 @@ jobs:
             log="$RUNNER_TEMP/publish.log"
             if cargo publish --allow-dirty 2> "$log"; then cat "$log"; exit 0; fi
             cat "$log"
-            grep -qE 'no matching package named|candidate versions found which didn.t match' "$log" || exit 1
+            grep -qE 'no matching package named .custodian_kit.|failed to select a version for the requirement .custodian_kit = ' "$log" || exit 1
             echo "a dependency is not on crates.io yet; waiting 30s (attempt $attempt of 30)"
             sleep 30
           done
