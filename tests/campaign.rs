@@ -581,20 +581,9 @@ fn an_interrupted_campaign_resumes_without_running_a_completed_node_again() {
     experiment(&a, "C", Some(2), Some(&step(&a, 2)), 3, |_| {});
     let file = doc(&a, "resume.json", r#"{"id":"resume","steps":[{"sequence":{"steps":[{"run":{"id":"A","spec":"A.json"}},{"run":{"id":"B","spec":"B.json"}},{"run":{"id":"C","spec":"C.json"}}]}}]}"#);
     let progress = c.join(".custodian/data/campaigns/resume/progress.json");
-    let mut child = std::process::Command::new(BIN).args(["experiment", "campaign", file.to_str().unwrap()]).current_dir(&c).env_remove("XDG_RUNTIME_DIR").env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap())).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
-    let mut a_done = None;
-    for _ in 0..600 {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        if let Ok(p) = experiments::read_campaign_progress(&progress) {
-            if p.nodes.contains_key("A") && p.running.iter().any(|r| r == "B") {
-                a_done = Some(p);
-                break;
-            }
-        }
-    }
-    let kept = a_done.expect("A completed and B started");
-    child.kill().unwrap();
-    let _ = child.wait();
+    // A completed, B started (and in its prepare's sleep)
+    kill_when(&c, &bin, &file, ".custodian/data/campaigns/resume/progress.json", "B", |_| experiments::read_campaign_progress(&progress).is_ok_and(|p| p.nodes.contains_key("A") && p.running.iter().any(|r| r == "B")));
+    let kept = experiments::read_campaign_progress(&progress).unwrap();
     assert_eq!(std::fs::read_to_string(c.join("STATE.txt")).unwrap(), state(1), "stopped before B wrote");
     let a_result = kept.nodes["A"].result.clone().unwrap();
     // a stale resume is refused: the experiment C moved
@@ -871,21 +860,44 @@ fn links_out_of_the_tree_and_strict_excludes_of_source_are_refused() {
     assert!(r.code == 2 && r.all().contains("strict: exclude `run` leaves out run/out.txt"), "{}", r.all());
 }
 
-/// `custodian experiment campaign FILE` started, killed once node `id` is running and `when` holds.
+/// `custodian experiment campaign FILE` started, killed once node `id` is running (the progress names it running, or
+/// its mark `nodes/<id>/running.json` is written) and `when` holds. The child's stdout and stderr are kept beside the
+/// campaign file and shown when it fails: when it exits before that, at once; when ten minutes pass (a slow runner,
+/// each node proving its change), then.
 fn kill_when(c: &Path, bin: &Path, file: &Path, progress: &str, id: &str, when: impl Fn(&Path) -> bool) {
     let progress = c.join(progress);
-    let mut child = std::process::Command::new(BIN).args(["experiment", "campaign", file.to_str().unwrap()]).current_dir(c).env_remove("XDG_RUNTIME_DIR").env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap())).stdout(std::process::Stdio::null()).stderr(std::process::Stdio::null()).spawn().unwrap();
-    let mut seen = false;
-    for _ in 0..800 {
-        std::thread::sleep(std::time::Duration::from_millis(50));
-        if experiments::read_campaign_progress(&progress).is_ok_and(|p| p.running.iter().any(|r| r == id)) && when(c) {
-            seen = true;
+    let runs = progress.parent().unwrap().join("runs");
+    let dir = file.parent().unwrap();
+    let (out, err) = (dir.join(format!("kill-{id}.stdout")), dir.join(format!("kill-{id}.stderr")));
+    let mut child = std::process::Command::new(BIN)
+        .args(["experiment", "campaign", file.to_str().unwrap()])
+        .current_dir(c)
+        .env_remove("XDG_RUNTIME_DIR")
+        .env("PATH", format!("{}:{}", bin.display(), std::env::var("PATH").unwrap()))
+        .stdin(std::process::Stdio::null())
+        .stdout(std::fs::File::create(&out).unwrap())
+        .stderr(std::fs::File::create(&err).unwrap())
+        .spawn()
+        .unwrap();
+    let said = || format!("stdout:\n{}\nstderr:\n{}", std::fs::read_to_string(&out).unwrap_or_default(), std::fs::read_to_string(&err).unwrap_or_default());
+    let running = || experiments::read_campaign_progress(&progress).is_ok_and(|p| p.running.iter().any(|r| r == id)) || walk_files(&runs).iter().any(|p| p.ends_with(format!("nodes/{id}/running.json")));
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(600);
+    loop {
+        if let Some(status) = child.try_wait().unwrap() {
+            panic!("the campaign ended ({status}) before {id} ran as expected\n{}", said());
+        }
+        if running() && when(c) {
             break;
         }
+        if std::time::Instant::now() > deadline {
+            child.kill().unwrap();
+            let _ = child.wait();
+            panic!("{id} never ran as expected in ten minutes\n{}", said());
+        }
+        std::thread::sleep(std::time::Duration::from_millis(100));
     }
     child.kill().unwrap();
     let _ = child.wait();
-    assert!(seen, "{id} never ran as expected before the kill");
 }
 
 /// How many of custodian's own `transform` lines a governed folder has receipts of.
