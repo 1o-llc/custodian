@@ -1,6 +1,6 @@
 # Changelog
 
-## 0.8.0 (unreleased)
+## 0.8.0 (2026-11-06)
 
 Exact tree measurements made by custodian, and a campaign that checks its writer before anything runs. experiments
 0.5.0 lets an experiment say that its specimen must equal a kept tree, paths, bytes and modes, and leaves the
