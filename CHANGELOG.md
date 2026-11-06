@@ -1,5 +1,54 @@
 # Changelog
 
+## 0.8.0 (unreleased)
+
+Exact tree measurements made by custodian, and a campaign that checks its writer before anything runs. experiments
+0.5.0 lets an experiment say that its specimen must equal a kept tree, paths, bytes and modes, and leaves the
+comparison to its host; custodian already reads a tree one way, the way a campaign reads every state, so it reads
+both trees that way. And the BFCB ordered history named code-passenger 0.6.0 in its README because the copy on PATH,
+0.5.0, refuses `operation = "replay"` only when a node reaches it; now the plan says so first. Minor, not patch:
+experiments 0.5.0's types in this crate's API, an option on `experiment run`, a refusal the plan did not have. On
+custodian_kit 0.5.1 and experiments 0.5.0. Links are pinned to 12b72e9.
+
+- **The comparison** ([`compare_exact_tree`](https://github.com/1o-llc/custodian/blob/12b72e9/src/experimenting.rs#L175)): both trees read by
+  [`campaigning::state_of`](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L166) (every file custodian_kit's provenance reads, the kit's
+  `left_out` aside, each with its content digest and its mode), the same exclusions for both; the paths where they
+  differ are the kit's `provenance::differences` over the two (`+` only measured, `-` only expected, `~` other
+  content or another mode). The record keeps both digests, both file counts and every differing path; the experiment
+  result keeps the record, and the line says it (`experiment run`'s `said`). No receipt of its own: the comparison is
+  no line, and the facade gives a receipt to a declared line or an external program only; the record is in the
+  result the `experiment run` receipt names as its output.
+- **What is excluded** ([`experiment run --exclude P`](https://github.com/1o-llc/custodian/blob/12b72e9/src/surface.rs#L1900), repeated, read at
+  [L2206](https://github.com/1o-llc/custodian/blob/12b72e9/src/surface.rs#L2206)): paths relative to the project root, which a campaign gives each node from its own
+  `exclude` ([campaigning.rs L1007](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L1007)); none otherwise. Inside the tree measured they are
+  taken relative to it ([`excluded_in`](https://github.com/1o-llc/custodian/blob/12b72e9/src/experimenting.rs#L138)) and left out of both trees; the record names
+  them. Not an MCP tool's input ([mcp.rs L84](https://github.com/1o-llc/custodian/blob/12b72e9/src/mcp.rs#L84)): an agent does not choose what a measurement
+  leaves out.
+- **A campaign's NodeRecord** is unchanged: it names the experiment's result (path and digest), which carries the
+  exact tree records.
+- **The writer, checked** ([`writer_performs`](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L647), called at
+  [L61](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L61) before `--plan` shows anything and before a run starts): every operation the
+  campaign's change specs use (each change file where experiments' own binding resolves it) must be among those the
+  first code-passenger on PATH says it performs, the second line of its `version` (code_passenger 0.7.0). One that
+  says none (0.5.0, 0.6.0) or not that one is refused, naming the operation, the experiment and change that use it,
+  the program's path and its version. The version is read once, by [`passenger_says`](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L638),
+  for this and for the tools a result records ([L676](https://github.com/1o-llc/custodian/blob/12b72e9/src/campaigning.rs#L676), was
+  [inline](https://github.com/1o-llc/custodian/blob/edb33f2/src/campaigning.rs#L639)). With no code-passenger on PATH the rule before this one stands: strict
+  refuses, elsewhere the first change is refused at its node.
+
+Tests: `tests/exact_tree.rs`: `equal_trees_are_true_and_the_result_keeps_both_digests` (each digest the one
+`state_of` reads, three files each, no command run),
+`one_byte_one_mode_one_extra_and_one_missing_file_are_each_not_equal_naming_the_path` (`~a.txt`, `~bin/run.sh`,
+`-src/deep/extra.rs`, `+src/deep/c.rs`, each with both digests, do not promote),
+`a_campaign_node_leaves_out_the_campaigns_exclude_from_both_trees` (alone, a scratch file differs; as a node of a
+campaign excluding it, equal, the record naming it),
+`a_campaign_refuses_a_writer_that_does_not_say_it_performs_an_operation_its_specs_use` (a 0.6.0 that lists none and
+one that lists others, each refused with the operation, its path and its version, the plan and a run, nothing run; the
+writer built from code_passenger 0.7.0 goes on). `tests/golden/help.txt` gains `--exclude`.
+
+`cargo test --test exact_tree --test experiments --test campaign --test cli --test mcp --test modes --lib`: 109
+passed, 0 failed.
+
 ## 0.7.0 (2026-11-03)
 
 `custodian experiment campaign CAMPAIGN [STORAGE] [--job JOB] [--plan] [--again]`: an experiments 0.4.0 campaign
