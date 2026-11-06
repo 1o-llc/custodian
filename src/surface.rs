@@ -1894,6 +1894,11 @@ leaf! {
         #[builder(into)]
         #[arg(kv = "--job", each = plain)]
         pub job: Option<OsString>,
+        /// A path, relative to the project's root, an exact tree measurement leaves out of both trees it compares:
+        /// a campaign gives its node its own `exclude`. Repeat for each.
+        #[builder(into)]
+        #[arg(kv = "--exclude", each = nonempty)]
+        pub exclude: Vec<OsString>,
     }
 }
 
@@ -2198,7 +2203,7 @@ fn read_archive_check(w: &mut Words) -> Result<ArchiveCheck> {
 }
 
 fn read_experiment_run(w: &mut Words) -> Result<ExperimentRun> {
-    Ok(ExperimentRun { job: kv(w, "--job")?, spec: need(w, "experiment spec (experiment run SPEC [STORAGE])", "experiment run")?, storage: pos(w) })
+    Ok(ExperimentRun { job: kv(w, "--job")?, exclude: w.kvs("--exclude")?.into_iter().map(OsString::from).collect(), spec: need(w, "experiment spec (experiment run SPEC [STORAGE])", "experiment run")?, storage: pos(w) })
 }
 
 fn read_experiment_campaign(w: &mut Words) -> Result<ExperimentCampaign> {

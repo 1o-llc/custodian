@@ -18,7 +18,7 @@
 use crate::codes::{Code, Refusal, Result};
 use crate::facade::{self, Ctx, External, ExternalNames, Ran};
 use crate::surface::{self, s, so, ExperimentRun, Line};
-use experiments::{ChangeRequest, CommandRecord, CommandSpec, Evidence, ExperimentError, ExperimentHost, ExperimentResult, ExperimentRunner, MutationRecord, PromotionDecision};
+use experiments::{ChangeRequest, CommandRecord, CommandSpec, Evidence, ExactTreeRecord, ExactTreeRequest, ExperimentError, ExperimentHost, ExperimentResult, ExperimentRunner, MutationRecord, PromotionDecision};
 use std::path::{Path, PathBuf};
 
 pub fn run(ctx: &mut Ctx, l: &ExperimentRun) -> Result<Ran> {
@@ -36,7 +36,7 @@ pub fn run(ctx: &mut Ctx, l: &ExperimentRun) -> Result<Ran> {
     };
     let mut ran = Ran::named(spec.id.clone());
     ran.job = job.clone();
-    let mut host = Hosted { ctx, job: job.clone(), refusal: None, said: Vec::new() };
+    let mut host = Hosted { ctx, job: job.clone(), exclude: l.exclude.iter().map(s).collect(), refusal: None, said: Vec::new() };
     let outcome = ExperimentRunner::new(&storage).run_with(&spec, &mut host);
     let (said, refusal) = (std::mem::take(&mut host.said), host.refusal.take());
     ran.said.extend(said);
@@ -45,7 +45,7 @@ pub fn run(ctx: &mut Ctx, l: &ExperimentRun) -> Result<Ran> {
         // an operation custodian refused (a preflight, the writer, a program missing) is refused as itself
         Err(e) => return Err(refusal.unwrap_or_else(|| Code::ExperimentRefused.refuse(format!("{}: {e}", spec.id)))),
     };
-    ran.say(format!("experiment {} run {}: {} commands, {} changes, {} evidence", result.experiment_id, result.run_id, result.commands.len(), result.mutations.len(), result.evidence.len()));
+    ran.say(format!("experiment {} run {}: {} commands, {} changes, {} evidence, {} exact trees", result.experiment_id, result.run_id, result.commands.len(), result.mutations.len(), result.evidence.len(), result.exact_trees.len()));
     ran.say(format!("scientific outcome: {:?} · promotion: {:?} · verification {}", result.evaluation.conclusion.outcome, result.promotion, if result.verification.passed { "passed" } else { "failed" }));
     let kept = ctx.rel(&path);
     ran.say(format!("result: {kept}"));
@@ -117,6 +117,9 @@ pub fn data_folder(ctx: &Ctx, job: Option<&str>) -> Result<Option<PathBuf>> {
 struct Hosted<'c> {
     ctx: &'c mut Ctx,
     job: Option<String>,
+    /// What an exact tree measurement leaves out of both trees, relative to the project's root: a campaign node's
+    /// `exclude`, none otherwise.
+    exclude: Vec<String>,
     /// The first refusal an operation met: the line is refused as it.
     refusal: Option<Refusal>,
     said: Vec<String>,
@@ -128,6 +131,15 @@ impl Hosted<'_> {
         self.refusal.get_or_insert(r);
         text
     }
+}
+
+/// `exclude` (relative to the project's `root`) as it reads inside the tree at `tree`: each path under the tree,
+/// relative to it; none when the tree is not under the root.
+fn excluded_in(exclude: &[String], root: &Path, tree: &Path) -> Vec<String> {
+    let canon = |p: &Path| p.canonicalize().unwrap_or_else(|_| p.to_path_buf());
+    let Ok(at) = canon(tree).strip_prefix(canon(root)).map(|r| r.to_string_lossy().replace('\\', "/")) else { return Vec::new() };
+    let lead = if at.is_empty() { String::new() } else { format!("{at}/") };
+    exclude.iter().filter_map(|e| e.trim_end_matches('/').strip_prefix(lead.as_str()).filter(|r| !r.is_empty()).map(str::to_owned)).collect()
 }
 
 impl ExperimentHost for Hosted<'_> {
@@ -153,6 +165,34 @@ impl ExperimentHost for Hosted<'_> {
             status: run.code.unwrap_or(-1),
             stdout: run.stdout,
             stderr: run.stderr,
+        })
+    }
+
+    /// Both trees read by the one rule a campaign reads a state by ([`crate::campaigning::state_of`]: every file
+    /// custodian_kit's provenance reads, its content digest and its mode, less what is excluded), the same exclusions
+    /// for both; the paths where they differ are the kit's ([`custodian_kit::provenance::differences`]), a mode
+    /// change a `~path` as a content change is.
+    fn compare_exact_tree(&mut self, request: &ExactTreeRequest) -> std::result::Result<ExactTreeRecord, ExperimentError> {
+        let excluded = excluded_in(&self.exclude, self.ctx.root(), &request.path);
+        let read = |tree: &Path| crate::campaigning::state_of(tree, &excluded).map_err(|e| ExperimentError::Measurement { name: request.name.clone(), detail: format!("{}: {e}", tree.display()) });
+        let (observed, measured) = read(&request.path)?;
+        let (expected, wanted) = read(&request.equals_tree)?;
+        let differing_paths = custodian_kit::provenance::differences(&wanted, &measured);
+        let equal = differing_paths.is_empty();
+        let shown = if equal { "equal".to_string() } else { format!("{} paths differ ({})", differing_paths.len(), differing_paths.iter().take(5).cloned().collect::<Vec<_>>().join(", ")) };
+        self.said.push(format!("{} {}: {} ({}, {} files) and {} ({}, {} files): {shown}", request.phase, request.name, request.path.display(), observed.digest, observed.files, request.equals_tree.display(), expected.digest, expected.files));
+        Ok(ExactTreeRecord {
+            phase: request.phase.clone(),
+            name: request.name.clone(),
+            path: request.path.clone(),
+            equals_tree: request.equals_tree.clone(),
+            observed_digest: observed.digest,
+            expected_digest: expected.digest,
+            observed_files: observed.files,
+            expected_files: expected.files,
+            equal,
+            differing_paths,
+            excluded,
         })
     }
 

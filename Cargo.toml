@@ -1,6 +1,6 @@
 [package]
 name = "custodian"
-version = "0.7.0"
+version = "0.8.0"
 edition = "2021"
 # ob-serve-a-bowl 0.2 needs 1.88; xccute 0.3.1 (the job lock is std File::try_lock) needs 1.89; experiments 0.3.2
 # (the hosted `experiment run`) needs 1.90; experiments 0.4.0 (`experiment campaign`) keeps 1.90
@@ -24,7 +24,7 @@ path = "src/main.rs"
 [dependencies]
 # the library: readings over klepto, held open as a Workspace (src/api.rs)
 # 0.1.1: a job's close reads cargo's test outcomes (`FAILED`), the words custodian writes
-custodian_kit = { version = "0.5.0", path = "../custodian_kit" }
+custodian_kit = { version = "0.5.1", path = "../custodian_kit" }
 # a job's records in James Hunt's typed 1o task histories (written through custodian_kit's task_records)
 task_history = "0.1.2"
 # the receipts journal custodian's tables sit beside; the counts over time and their tables; every kind of history
@@ -42,7 +42,7 @@ xccute_runtime = "0.1.2"
 # `experiment run`: the experiment's runner, hosted here; without its code-passenger feature, so a hosted change is
 # only ever made through custodian's own preflight and transform lines. `experiment campaign`: its campaign plan and
 # runner, governed here. The sibling checkout beside this one (CI clones it); the packaged crate names the version
-experiments = { version = "0.4.0", path = "../experiments", default-features = false, features = ["differences"] }
+experiments = { version = "0.5.0", path = "../experiments", default-features = false, features = ["differences"] }
 # a job held under the workspace's job lock (`Hold` over a `LockFile`), every wait from one timing table
 xccute = "0.3.1"
 # the cargo test lines (nothing redeclared)

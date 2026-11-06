@@ -8,7 +8,7 @@ mod common;
 
 use common::*;
 use experiments::campaign::{CampaignResult, CampaignStatus, NodeResult, NodeStatus, StateAction};
-use experiments::{CommandSpec, ExperimentSpec, MeasurementParser, MeasurementPhase, MeasurementSpec, MutationChange, MutationMode, MutationPlan, PromotionDecision};
+use experiments::{CommandSpec, ExperimentSpec, MeasurementParser, MeasurementPhase, MeasurementSource, MeasurementSpec, MutationChange, MutationMode, MutationPlan, PromotionDecision};
 use experiments::scientific_method::{self, Comparator, Criterion, Hypothesis, IndependentVariable, Operand, ScientificMethod};
 use std::os::unix::fs::PermissionsExt;
 use std::path::{Path, PathBuf};
@@ -108,7 +108,7 @@ fn experiment(dir: &Path, id: &str, from: Option<usize>, change: Option<&Path>, 
     } else {
         s.mutation.mode = MutationMode::Bounded;
     }
-    s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: "exact".into(), unit: None, command: command("exact", "grep", &["-qx", &format!("state {to}"), "STATE.txt"]), parser: MeasurementParser::ExitSuccess });
+    s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: "exact".into(), unit: None, source: MeasurementSource::Command { command: command("exact", "grep", &["-qx", &format!("state {to}"), "STATE.txt"]), parser: MeasurementParser::ExitSuccess } });
     shape(&mut s);
     let p = dir.join(format!("{id}.json"));
     experiments::write_spec(&p, &s).unwrap();
@@ -406,7 +406,7 @@ fn a_repeat_runs_independent_trials_and_summarizes_them() {
     let c = project("repeat");
     let a = fresh("campaign-repeat-artifacts");
     experiment(&a, "T", Some(0), Some(&step(&a, 0)), 1, |s| {
-        s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: "replicate".into(), unit: None, command: command("replicate", "printenv", &["EXPERIMENT_REPLICATE"]), parser: MeasurementParser::Number });
+        s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: "replicate".into(), unit: None, source: MeasurementSource::Command { command: command("replicate", "printenv", &["EXPERIMENT_REPLICATE"]), parser: MeasurementParser::Number } });
     });
     let file = doc(&a, "repeat.json", r#"{"id":"rep","policy":{"max_parallel":3},"steps":[{"repeat":{"id":"again","times":3,"run":{"id":"treatment","spec":"T.json"}}}]}"#);
     let r = result_of(&c, &campaign(&c, &bin, &file, &[], 0));
@@ -435,10 +435,10 @@ fn measuring(a: &Path, id: &str) -> PathBuf {
         s.scientific_method.independent_variables = vec![IndependentVariable::new("matcher"), IndependentVariable::new("size")];
         s.scientific_method.controls = vec![scientific_method::Control::new("seed")];
         for (name, var) in [("size", "EXPERIMENT_FACTOR_SIZE"), ("seed", "EXPERIMENT_CONTROL_SEED")] {
-            s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: name.into(), unit: None, command: command(name, "printenv", &[var]), parser: MeasurementParser::Number });
+            s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: name.into(), unit: None, source: MeasurementSource::Command { command: command(name, "printenv", &[var]), parser: MeasurementParser::Number } });
         }
         for (name, var) in [("matcher", "EXPERIMENT_FACTOR_MATCHER"), ("machine", "EXPERIMENT_BLOCK_MACHINE")] {
-            s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: name.into(), unit: None, command: command(name, "printenv", &[var]), parser: MeasurementParser::Text });
+            s.measurements.measurements.push(MeasurementSpec { phase: MeasurementPhase::Candidate, condition: "candidate".into(), name: name.into(), unit: None, source: MeasurementSource::Command { command: command(name, "printenv", &[var]), parser: MeasurementParser::Text } });
         }
     })
 }

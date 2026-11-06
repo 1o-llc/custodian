@@ -57,6 +57,10 @@ pub fn run(ctx: &mut Ctx, l: &ExperimentCampaign) -> Result<Ran> {
     let loaded = LoadedCampaign::load(&file, &root).map_err(|e| Code::CampaignRefused.refuse(format!("{}: {}", file.display(), e.0.join(" · "))))?;
     let mut ran = Ran::named(loaded.plan.campaign_id.clone());
     ran.job = job.clone();
+    // the writer custodian would run performs every operation the change specs use, or nothing runs (a plan too)
+    if let Some(writer) = writer_performs(&loaded, crate::maint::passenger_path().as_deref())? {
+        ran.say(writer);
+    }
     if l.plan {
         show(&loaded.plan, &mut ran);
         ran.code = if loaded.plan.findings.is_empty() { 0 } else { 1 };
@@ -628,15 +632,54 @@ fn status(result: &CampaignResult, ran: &mut Ran) {
     }
 }
 
+/// What the code-passenger at `program` says of itself (`--version`, as an argv line): its name and version on the
+/// first line (`code_passenger 0.7.0 (custodian_kit 0.5.1)`), and from 0.7.0 the operations it performs on the next
+/// (`operations: make_struct ... replay`).
+fn passenger_says(program: &Path) -> Option<String> {
+    use xccute_runtime::ShellCommand;
+    xccute_runtime::CommandSpec::new(program.display().to_string()).args(vec!["--version".to_string()]).to_command().output().ok().map(|o| String::from_utf8_lossy(&o.stdout).into_owned())
+}
+
+/// Whether the code-passenger at `program` (the one this process would run: the first on PATH) performs every
+/// operation the campaign's change specs use, read from what its `version` says. Refused, naming the operation, the
+/// program and its version, when it says no operations at all (before 0.7.0 none is said) or not that one. The line it
+/// is, when the campaign makes a change and a writer is on PATH; none otherwise.
+pub fn writer_performs(loaded: &LoadedCampaign, program: Option<&Path>) -> Result<Option<String>> {
+    // each operation used, with the first experiment and change that use it; each change file where the
+    // experiments' own rule resolves it (a node's binding: the declared target)
+    let mut used: BTreeMap<String, String> = BTreeMap::new();
+    let mut seen = std::collections::BTreeSet::new();
+    for node in loaded.plan.nodes.iter().filter(|n| seen.insert(n.spec.clone())) {
+        let bound = loaded.bound(&node.id, &loaded.root).map_err(|e| Code::CampaignRefused.refuse(e.0.join(" · ")))?;
+        for c in &bound.mutation.changes {
+            let spec = custodian_kit::change::ChangeSpec::from_path(&c.spec).map_err(|e| Code::CampaignRefused.refuse(format!("{} change {}: {e}", node.spec, c.label)))?;
+            used.entry(spec.op().as_str().to_owned()).or_insert_with(|| format!("{}'s change {} ({})", node.spec, c.label, c.spec.display()));
+        }
+    }
+    let Some((op, first)) = used.first_key_value() else { return Ok(None) };
+    // no writer on PATH at all is the rule that was there before this one: strict refuses it before anything runs,
+    // elsewhere the first change is refused at its node
+    let Some(program) = program else { return Ok(None) };
+    let says = passenger_says(program).unwrap_or_default();
+    let version = says.lines().next().unwrap_or("no version said").to_owned();
+    let performs: Vec<&str> = says.lines().find_map(|l| l.strip_prefix("operations:")).map(|o| o.split_whitespace().collect()).unwrap_or_default();
+    if performs.is_empty() {
+        return Err(Code::CampaignRefused.refuse(format!("code-passenger {} ({version}) does not say the operations it performs (its version lists none), so it is not shown to perform `{op}`, which {first} uses: code-passenger 0.7.0 or later says them", program.display())));
+    }
+    if let Some((op, first)) = used.iter().find(|(o, _)| !performs.contains(&o.as_str())) {
+        return Err(Code::CampaignRefused.refuse(format!("code-passenger {} ({version}) does not perform `{op}`, which {first} uses", program.display())));
+    }
+    Ok(Some(format!("writer: code-passenger {} ({version}) performs {}", program.display(), used.keys().cloned().collect::<Vec<_>>().join(", "))))
+}
+
 /// The tools the campaign ran with.
 fn tools() -> Vec<ToolVersion> {
     let digest = |p: &Path| std::fs::read(p).ok().map(|b| experiments::campaign::digest::bytes(&b));
     let me = std::env::current_exe().ok();
     let mine = me.as_deref().and_then(digest);
     let passenger = crate::maint::passenger_path();
-    // the writer's own word for its version (`code_passenger 0.6.0 (custodian_kit 0.5.0)`), as an argv line
-    use xccute_runtime::ShellCommand;
-    let version = passenger.as_ref().and_then(|p| xccute_runtime::CommandSpec::new(p.display().to_string()).args(vec!["--version".to_string()]).to_command().output().ok()).and_then(|o| String::from_utf8_lossy(&o.stdout).lines().next().map(str::to_owned));
+    // the writer's own word for its version (`code_passenger 0.6.0 (custodian_kit 0.5.0)`): what it says first
+    let version = passenger.as_deref().and_then(passenger_says).and_then(|o| o.lines().next().map(str::to_owned));
     vec![
         ToolVersion { name: "custodian".into(), version: Some(env!("CARGO_PKG_VERSION").into()), digest: mine.clone(), path: me.clone() },
         // linked into custodian: its digest is the binary's that carries it
@@ -960,7 +1003,8 @@ fn hosted(ctx: &mut Ctx, env: &Env, node: &PlanNode, expected: Option<StateIdent
         rec.reason = Some(e.to_string());
         return rec;
     }
-    let line = Line::ExperimentRun(surface::ExperimentRun { spec: spec_file.clone().into_os_string(), storage: Some(node_dir.join("experiment").into_os_string()), job: job.clone().map(Into::into) });
+    // the campaign's exclude, what an exact tree measurement leaves out of both trees as the campaign's state does
+    let line = Line::ExperimentRun(surface::ExperimentRun { spec: spec_file.clone().into_os_string(), storage: Some(node_dir.join("experiment").into_os_string()), job: job.clone().map(Into::into), exclude: env.exclude.iter().map(Into::into).collect() });
     let out = facade::execute(ctx, &line, crate::cli::handle);
     let execution = match (&out.refusal, out.receipt.outputs.first()) {
         (None, Some(o)) => {

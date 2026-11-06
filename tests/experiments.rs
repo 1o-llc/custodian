@@ -244,7 +244,7 @@ fn a_bounded_replay_goes_through_custodians_preflight_and_code_passengers_transf
         let replay = replay_spec(change.parent().unwrap());
         s.mutation = MutationPlan { mode: MutationMode::Bounded, changes: vec![MutationChange { label: "state 2".into(), spec: replay }], ..MutationPlan::default() };
         // the candidate is measured by the script the replay made, run as a program
-        s.measurements.measurements[1].command = command("candidate latency", "./scripts/measure.sh", &[]);
+        *s.measurements.measurements[1].command_mut().unwrap() = command("candidate latency", "./scripts/measure.sh", &[]);
         s.verification.commands = vec![command("state 2", "test", &["!", "-e", "notes.txt"])];
     });
     let out = ok_with(&c, &["experiment", "run", spec.to_str().unwrap()], Some(&bin), 0);
@@ -330,7 +330,7 @@ fn a_refused_preflight_writes_nothing_and_refuses_the_run() {
 #[test]
 fn a_decision_not_to_promote_is_findings_and_a_run_that_cannot_finish_is_refused() {
     let c = project("statuses", true);
-    let worse = experiment("worse", |s, _| s.measurements.measurements[1].command.args = vec!["100".into()]);
+    let worse = experiment("worse", |s, _| s.measurements.measurements[1].command_mut().unwrap().args = vec!["100".into()]);
     let out = ok(&c, &["experiment", "run", worse.to_str().unwrap()], 1);
     let (_, result) = result_of(&c, &out);
     assert_eq!(result.promotion, PromotionDecision::DoNotPromote);
